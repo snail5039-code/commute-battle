@@ -9,17 +9,14 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="hidden md:flex w-60 shrink-0 bg-white/70 backdrop-blur-xl border-r border-black/[0.06] flex-col">
-      <div className="h-16 flex items-center px-5">
-        <div className="w-7 h-7 rounded-[8px] bg-gradient-to-b from-blue-500 to-blue-600 flex items-center justify-center shadow-sm shrink-0">
-          <Siren size={15} className="text-white" strokeWidth={2.25} />
+    <aside className="hidden md:flex w-16 shrink-0 bg-white/70 backdrop-blur-xl border-r border-black/[0.06] flex-col items-center">
+      <div className="h-16 flex items-center justify-center">
+        <div className="w-8 h-8 rounded-[9px] bg-gradient-to-b from-blue-500 to-blue-600 flex items-center justify-center shadow-sm shrink-0">
+          <Siren size={16} className="text-white" strokeWidth={2.25} />
         </div>
-        <span className="ml-2.5 font-semibold text-[15px] text-neutral-900 tracking-tight">
-          출퇴근전쟁봇
-        </span>
       </div>
 
-      <nav className="flex-1 py-2 space-y-0.5 px-3">
+      <nav className="flex-1 py-2 space-y-1.5 flex flex-col items-center w-full">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.href;
           const Icon = item.icon;
@@ -28,26 +25,26 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-2.5 rounded-[10px] px-3 py-2 text-[13px] font-medium transition-all ${
+              title={item.label}
+              className={`flex items-center justify-center w-10 h-10 rounded-[10px] transition-all ${
                 isActive
                   ? 'bg-blue-500/10 text-blue-600'
-                  : 'text-neutral-500 hover:bg-black/[0.04] hover:text-neutral-800'
+                  : 'text-neutral-400 hover:bg-black/[0.04] hover:text-neutral-700'
               }`}
             >
-              <Icon size={17} strokeWidth={isActive ? 2.5 : 2} />
-              <span>{item.label}</span>
+              <Icon size={19} strokeWidth={isActive ? 2.5 : 2} />
             </Link>
           );
         })}
       </nav>
 
-      <div className="py-3 px-3 border-t border-black/[0.06]">
+      <div className="py-3 border-t border-black/[0.06] w-full flex justify-center">
         <Link
           href="/login"
-          className="flex items-center gap-2.5 rounded-[10px] px-3 py-2 text-[13px] font-medium text-neutral-400 hover:bg-black/[0.04] hover:text-neutral-700 transition-all"
+          title="로그인"
+          className="flex items-center justify-center w-10 h-10 rounded-[10px] text-neutral-400 hover:bg-black/[0.04] hover:text-neutral-700 transition-all"
         >
-          <LogIn size={17} />
-          <span>로그인</span>
+          <LogIn size={19} />
         </Link>
       </div>
     </aside>
