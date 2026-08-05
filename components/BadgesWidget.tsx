@@ -58,7 +58,7 @@ export default function BadgesWidget({ records, user }: { records: CommuteRecord
             <p className="rounded-xl bg-amber-50 px-3 py-4 text-center text-xs font-medium text-amber-700">모든 배지를 해금했어요. 대단해요!</p>
           ) : upNext.map(({ badge, displayed, percent, revealed }) => (
             <div key={badge.key} className="flex items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
+              <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${revealed ? 'bg-indigo-50 text-indigo-600 ring-indigo-100' : 'bg-slate-100 text-slate-400 ring-slate-200'}`}>
                 {revealed ? <BadgeIcon icon={badge.icon} size={16} /> : <LockKeyhole size={15} />}
               </div>
               <div className="min-w-0 flex-1">

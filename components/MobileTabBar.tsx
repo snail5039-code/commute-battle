@@ -19,9 +19,11 @@ export default function MobileTabBar() {
           const label = LABELS[item.href] ?? item.label;
           return (
             <Link key={item.href} href={item.href} aria-current={isActive ? 'page' : undefined}
-              className={`relative flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold transition-colors ${isActive ? 'text-blue-700' : 'text-slate-400 active:bg-slate-100'}`}>
+              className={`relative flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold transition-colors ${isActive ? 'text-blue-700' : 'text-slate-500 active:bg-slate-100'}`}>
               {isActive && <span className="absolute top-1 h-0.5 w-5 rounded-full bg-blue-600" />}
-              <Icon size={21} strokeWidth={isActive ? 2.5 : 2} aria-hidden="true" />
+              <span className={`flex size-9 items-center justify-center rounded-xl transition-all ${isActive ? 'bg-blue-600 text-white shadow-sm shadow-blue-200' : 'bg-slate-50 text-slate-500 ring-1 ring-slate-100'}`}>
+                <Icon size={20} strokeWidth={isActive ? 2.5 : 2} aria-hidden="true" />
+              </span>
               <span>{label}</span>
             </Link>
           );

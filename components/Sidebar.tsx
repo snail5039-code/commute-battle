@@ -28,7 +28,7 @@ export default function Sidebar() {
           const label = LABELS[item.href] ?? item.label;
           return (
             <Link key={item.href} href={item.href} aria-current={isActive ? 'page' : undefined} aria-label={label}
-              className={`group relative flex size-11 items-center justify-center rounded-[14px] transition-all ${isActive ? 'bg-blue-600 text-white shadow-md shadow-blue-200' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}>
+              className={`group relative flex size-11 items-center justify-center rounded-[14px] transition-all ${isActive ? 'bg-blue-600 text-white shadow-md shadow-blue-200' : 'bg-slate-50 text-slate-500 ring-1 ring-slate-100 hover:bg-slate-100 hover:text-slate-900'}`}>
               <Icon size={20} strokeWidth={isActive ? 2.5 : 2} aria-hidden="true" />
               <span className="sidebar-tooltip">{label}</span>
             </Link>

@@ -118,7 +118,7 @@ export default function CalendarView({ records }: CalendarViewProps) {
         <aside className="border-t border-slate-200 bg-slate-50/80 p-5 sm:p-6 lg:border-l lg:border-t-0" aria-live="polite" aria-label="선택한 날짜 상세">
           <div className="flex items-start justify-between gap-3">
             <div><p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">선택한 날짜</p><h4 className="mt-1 text-base font-extrabold text-slate-900">{selectedDateLabel}</h4></div>
-            <CalendarDays className="text-blue-500" size={22} aria-hidden="true" />
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-inset ring-blue-100"><CalendarDays size={20} aria-hidden="true" /></span>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <div className="rounded-xl border border-sky-100 bg-white p-3"><span className="text-[11px] text-slate-500">출근 횟수</span><strong className="mt-1 block text-lg text-sky-700">{commuteCount}회</strong></div>
@@ -137,7 +137,7 @@ export default function CalendarView({ records }: CalendarViewProps) {
                 const Icon = meta.Icon;
                 return (
                   <li key={record.id} className="rounded-2xl border border-slate-200 bg-white p-3">
-                    <div className="flex items-center justify-between gap-2"><span className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-bold ${meta.tone}`}><Icon size={13} aria-hidden="true" />{meta.label}</span><span className="text-[11px] font-semibold text-slate-500">{durationLabel(record)}</span></div>
+                    <div className="flex items-center justify-between gap-2"><span className={`inline-flex items-center gap-2 rounded-xl py-1 pr-2.5 text-[11px] font-bold ${meta.tone}`}><span className="flex size-7 items-center justify-center rounded-lg bg-white/80 ring-1 ring-inset ring-current/10"><Icon size={15} aria-hidden="true" /></span>{meta.label}</span><span className="text-[11px] font-semibold text-slate-500">{durationLabel(record)}</span></div>
                     {(record.start_time || record.end_time) && <div className="mt-2 flex items-center gap-2 text-xs text-slate-600"><span>{formatTime(record.start_time)}</span><ArrowRight size={12} className="text-slate-300" aria-hidden="true" /><span>{formatTime(record.end_time)}</span></div>}
                   </li>
                 );

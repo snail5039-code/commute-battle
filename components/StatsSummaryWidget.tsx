@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { AlertTriangle, ChevronRight } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, CalendarCheck2, ChevronRight, ClockAlert, Gauge } from 'lucide-react';
 import { CommuteRecord } from '@/lib/types';
 import { computeMonthlyStats } from '@/lib/stats';
 
@@ -9,10 +9,10 @@ export default function StatsSummaryWidget({ records }: { records: CommuteRecord
   const now = new Date();
   const stats = computeMonthlyStats(records, now);
   const items = [
-    { label: '완료한 이동', value: stats.commuteArrivals.length + stats.returnArrivals.length, suffix: '건' },
-    { label: '왕복 기록', value: stats.roundTripDays, suffix: '일' },
-    { label: '지각 횟수', value: stats.lateCount, suffix: '회' },
-    { label: '지각률', value: stats.lateRate ?? '-', suffix: stats.lateRate === null ? '' : '%' },
+    { label: '완료한 이동', value: stats.commuteArrivals.length + stats.returnArrivals.length, suffix: '건', Icon: CalendarCheck2, tone: 'bg-sky-50 text-sky-700 ring-sky-100' },
+    { label: '왕복 기록', value: stats.roundTripDays, suffix: '일', Icon: ArrowLeftRight, tone: 'bg-indigo-50 text-indigo-700 ring-indigo-100' },
+    { label: '지각 횟수', value: stats.lateCount, suffix: '회', Icon: ClockAlert, tone: 'bg-amber-50 text-amber-700 ring-amber-100' },
+    { label: '지각률', value: stats.lateRate ?? '-', suffix: stats.lateRate === null ? '' : '%', Icon: Gauge, tone: 'bg-rose-50 text-rose-700 ring-rose-100' },
   ];
   const hasIncompleteData = stats.incompleteCommutes + stats.invalidArrivalTimes > 0;
 
@@ -32,7 +32,8 @@ export default function StatsSummaryWidget({ records }: { records: CommuteRecord
         <>
           <div className="grid flex-1 grid-cols-2 gap-3">
             {items.map((item) => (
-              <div key={item.label} className="rounded-[10px] bg-neutral-50 p-3">
+              <div key={item.label} className="rounded-xl border border-neutral-100 bg-neutral-50 p-3">
+                <div className={`mb-2 flex size-9 items-center justify-center rounded-xl ring-1 ring-inset ${item.tone}`}><item.Icon size={18} strokeWidth={2.1} aria-hidden="true" /></div>
                 <p className="text-[11px] text-neutral-500">{item.label}</p>
                 <p className="mt-0.5 text-lg font-semibold tracking-tight text-neutral-900">{item.value}{item.suffix}</p>
               </div>

@@ -5,6 +5,7 @@ const TMAP_URL = 'https://apis.openapi.sk.com/tmap/routes/pedestrian?version=1';
 const EARTH_RADIUS_M = 6_371_000;
 const WALK_ROUTE_FACTOR = 1.22;
 const WALKING_SPEED_KMH = 4.5;
+const CONNECTION_GAP_M = 1;
 
 type Provider = 'tmap' | 'odsay';
 type ProviderErrorCode = 'PROVIDER_AUTH_FAILED' | 'PROVIDER_RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'ROUTE_NOT_FOUND';
@@ -132,6 +133,15 @@ function lanePoints(lane?: Lane): Point[] {
   return compact(raw.map((point) => ({ lat: Number(point.y), lng: Number(point.x) })).filter(validPoint));
 }
 
+function anchoredLanePoints(path: OdsaySubPath, lane: Point[]) {
+  const anchors = endpoints(path);
+  if (anchors.length < 2) return lane;
+  const [from, to] = anchors;
+  if (!lane.length) return anchors;
+  const oriented = distance(from, lane.at(-1)!) < distance(from, lane[0]) ? [...lane].reverse() : lane;
+  return compact([from, ...oriented, to]);
+}
+
 function metric(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? number : 0;
@@ -147,6 +157,38 @@ function fillMissingSegmentPoints(start: Point, end: Point, segments: Segment[])
     for (let cursor = index + 1; !to && cursor < segments.length; cursor++) to = segments[cursor].points[0];
     return { ...segment, points: compact([from || start, to || end].filter(validPoint)) };
   });
+}
+
+function connectionSegment(from: Point, to: Point): Segment {
+  const gap = distance(from, to);
+  return {
+    trafficType: 3,
+    providerTrafficType: null,
+    label: '도보 연결',
+    startName: null,
+    endName: null,
+    routeName: null,
+    stationCount: null,
+    transferIndex: null,
+    way: null,
+    door: null,
+    distance: Math.round(gap),
+    sectionTime: Math.max(1, Math.round((gap / 1000) / WALKING_SPEED_KMH * 60)),
+    points: [from, to],
+  };
+}
+
+function connectSegmentPoints(start: Point, end: Point, segments: Segment[]) {
+  const connected: Segment[] = [];
+  let cursor = start;
+  for (const segment of segments) {
+    const first = segment.points[0];
+    if (distance(cursor, first) > CONNECTION_GAP_M) connected.push(connectionSegment(cursor, first));
+    connected.push(segment);
+    cursor = segment.points.at(-1)!;
+  }
+  if (distance(cursor, end) > CONNECTION_GAP_M) connected.push(connectionSegment(cursor, end));
+  return connected;
 }
 
 async function walking(start: Point, end: Point, key: string): Promise<Segment> {
@@ -168,8 +210,12 @@ async function walking(start: Point, end: Point, key: string): Promise<Segment> 
 function validate(start: Point, end: Point, segments: Segment[]) {
   if (!segments.length) throw new Error('표시할 경로 구간이 없습니다.');
   const sanitized = segments.map((segment) => ({ ...segment, distance: metric(segment.distance), sectionTime: metric(segment.sectionTime), points: compact(segment.points.filter(validPoint)) }));
-  const cleaned = fillMissingSegmentPoints(start, end, sanitized);
+  const cleaned = connectSegmentPoints(start, end, fillMissingSegmentPoints(start, end, sanitized));
   if (cleaned.some((segment) => segment.points.length < 2)) throw new Error('일부 경로 구간의 좌표를 구성하지 못했습니다.');
+  const boundaryGap = cleaned.slice(1).reduce((max, segment, index) => Math.max(max, distance(cleaned[index].points.at(-1)!, segment.points[0])), 0);
+  if (distance(start, cleaned[0].points[0]) > CONNECTION_GAP_M || boundaryGap > CONNECTION_GAP_M || distance(cleaned.at(-1)!.points.at(-1)!, end) > CONNECTION_GAP_M) {
+    throw new Error('경로 구간을 연속적으로 연결하지 못했습니다.');
+  }
   const polyline = compact(cleaned.flatMap((segment) => segment.points));
   if (polyline.length < 2) throw new Error('표시할 수 있는 경로 좌표가 없습니다.');
   const direct = distance(start, end);
@@ -228,7 +274,7 @@ export async function GET(req: NextRequest) {
     const lanes = await odsayLanes(path.info?.mapObj, odsayKey!);
     let laneIndex = 0;
     let transitIndex = 0;
-    const segments: Segment[] = path.subPath.map((part) => {
+    let segments: Segment[] = path.subPath.map((part) => {
       const lane = part.trafficType === 3 ? undefined : lanes[laneIndex++];
       const points = lanePoints(lane);
       const isBus = [2, 5, 6].includes(part.trafficType);
@@ -253,35 +299,12 @@ export async function GET(req: NextRequest) {
         door: part.door == null ? null : String(part.door),
         distance: metric(part.distance),
         sectionTime: metric(part.sectionTime),
-        points: points.length >= 2 ? points : endpoints(part),
+        // Lane geometry can omit the exact station/terminal coordinates. Keep the
+        // ODSAY endpoints so intercity legs remain anchored even when lane data is sparse.
+        points: anchoredLanePoints(part, points),
       };
     });
-    if (segments.some((segment) => [4, 5, 6].includes(segment.providerTrafficType || 0))) {
-      const accessSegment = (from: Point, to: Point): Segment => ({
-        trafficType: 3,
-        providerTrafficType: null,
-        label: '도보',
-        startName: null,
-        endName: null,
-        routeName: null,
-        stationCount: null,
-        transferIndex: null,
-        way: null,
-        door: null,
-        distance: 0,
-        sectionTime: 0,
-        points: [from, to],
-      });
-      if (segments[0]?.trafficType !== 3) segments.unshift(accessSegment(start, segments[0]?.points[0] || start));
-      for (let index = segments.length - 1; index > 0; index--) {
-        const previous = segments[index - 1];
-        const current = segments[index];
-        if (previous.trafficType !== 3 && current.trafficType !== 3) {
-          segments.splice(index, 0, accessSegment(previous.points.at(-1) || start, current.points[0] || end));
-        }
-      }
-      if (segments.at(-1)?.trafficType !== 3) segments.push(accessSegment(segments.at(-1)?.points.at(-1) || end, end));
-    }
+    segments = connectSegmentPoints(start, end, fillMissingSegmentPoints(start, end, segments));
     segments.forEach((segment, index) => {
       if (segment.trafficType !== 3) {
         const vehicle = segment.routeName || (segment.providerTrafficType === 4 ? '기차' : segment.providerTrafficType === 5 ? '시외버스' : segment.providerTrafficType === 6 ? '고속버스' : segment.trafficType === 1 ? '지하철' : '버스');

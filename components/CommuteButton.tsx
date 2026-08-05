@@ -186,7 +186,7 @@ export default function CommuteButton({
                 {commuteCount}
               </span>
             )}
-            <span className={`flex size-9 items-center justify-center rounded-xl ${commuteCount > 0 ? 'bg-white/80' : 'bg-white/15'}`}>
+            <span className={`flex size-10 items-center justify-center rounded-xl ring-1 ring-inset ${commuteCount > 0 ? 'bg-white/90 ring-sky-100' : 'bg-white/15 ring-white/20'}`}>
               {loadingAction === 'commute' ? <LoaderCircle className="animate-spin" size={19} /> : commuteCount > 0 ? <Check size={19} strokeWidth={2.5} /> : <TrainFront size={20} strokeWidth={2.1} />}
             </span>
             {loadingAction === 'commute' ? '조회 중...' : '출근하기'}
@@ -206,7 +206,7 @@ export default function CommuteButton({
                 {returnCount}
               </span>
             )}
-            <span className={`flex size-9 items-center justify-center rounded-xl ${returnCount > 0 ? 'bg-white/80' : 'bg-white/15'}`}>
+            <span className={`flex size-10 items-center justify-center rounded-xl ring-1 ring-inset ${returnCount > 0 ? 'bg-white/90 ring-indigo-100' : 'bg-white/15 ring-white/20'}`}>
               {loadingAction === 'return' ? <LoaderCircle className="animate-spin" size={19} /> : returnCount > 0 ? <Check size={19} strokeWidth={2.5} /> : <House size={20} strokeWidth={2.1} />}
             </span>
             {loadingAction === 'return' ? '조회 중...' : '퇴근하기'}
@@ -238,7 +238,7 @@ export default function CommuteButton({
               onClick={() => router.push('/map')}
               className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-[12px] text-[13px] font-semibold transition-colors"
             >
-              <MapPin size={15} strokeWidth={2.25} />
+              <span className="flex size-7 items-center justify-center rounded-lg bg-white text-blue-600 ring-1 ring-blue-100"><MapPin size={15} strokeWidth={2.25} /></span>
               위치
             </button>
             <button
@@ -246,7 +246,7 @@ export default function CommuteButton({
               disabled={loadingAction === 'arrive'}
               className="flex-1 flex items-center justify-center gap-2 rounded-[12px] bg-gradient-to-r from-emerald-500 to-teal-500 py-2.5 text-[13px] font-bold text-white shadow-sm shadow-emerald-200 transition-all hover:-translate-y-0.5 hover:shadow-md disabled:opacity-50"
             >
-              {loadingAction === 'arrive' ? <LoaderCircle className="animate-spin" size={16} /> : <PartyPopper size={16} />}
+              <span className="flex size-7 items-center justify-center rounded-lg bg-white/15 text-white ring-1 ring-white/20">{loadingAction === 'arrive' ? <LoaderCircle className="animate-spin" size={16} /> : <PartyPopper size={16} />}</span>
               {loadingAction === 'arrive' ? '기록 중...' : '무사 도착!'}
             </button>
           </div>
@@ -258,7 +258,7 @@ export default function CommuteButton({
             disabled={!!loadingAction}
             className="flex items-center justify-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 py-2.5 text-[12px] font-bold text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-50"
           >
-            <Clock3 size={15} strokeWidth={2.25} />
+            <span className="flex size-7 items-center justify-center rounded-lg bg-white text-amber-700 ring-1 ring-amber-100"><Clock3 size={15} strokeWidth={2.25} /></span>
             {loadingAction === 'early_leave' ? '기록 중...' : '조퇴'}
           </button>
 
@@ -267,7 +267,7 @@ export default function CommuteButton({
             disabled={!!loadingAction}
             className="flex items-center justify-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 py-2.5 text-[12px] font-bold text-teal-700 transition-colors hover:bg-teal-100 disabled:opacity-50"
           >
-            <Palmtree size={15} strokeWidth={2.25} />
+            <span className="flex size-7 items-center justify-center rounded-lg bg-white text-teal-700 ring-1 ring-teal-100"><Palmtree size={15} strokeWidth={2.25} /></span>
             {loadingAction === 'vacation' ? '기록 중...' : '휴가'}
           </button>
         </div>

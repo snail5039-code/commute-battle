@@ -37,6 +37,7 @@ const ROUTE_REFRESH_DISTANCE_M = 100;
 const ROUTE_REFRESH_INTERVAL_MS = 30000;
 const CURRENT_LOCATION_LEVEL = 3;
 const SEGMENT_COLORS: Record<number, string> = { 1: '#10b981', 2: '#2563eb', 3: '#64748b' };
+const CONNECTION_GAP_M = 1;
 
 function formatElapsed(start?: string) {
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(start ?? Date.now()).getTime()) / 1000));
@@ -201,7 +202,22 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
     const bounds = new window.kakao.maps.LatLngBounds();
     [start, end].forEach((point) => bounds.extend(new window.kakao.maps.LatLng(point.lat, point.lng)));
     const drawableSegments = data.segments.filter((segment) => segment.points.length >= 2);
-    const segments = drawableSegments.length ? drawableSegments : [{ trafficType: 3, label: '경로', distance: data.summary.totalDistance, sectionTime: data.summary.totalTime, points: data.polyline }];
+    const sourceSegments: RouteSegment[] = drawableSegments.length ? drawableSegments : [{ trafficType: 3, label: '경로', distance: data.summary.totalDistance, sectionTime: data.summary.totalTime, points: data.polyline }];
+    // Keep rendering continuous for cached/older API responses too. A missing edge
+    // is displayed with the same dashed walking semantics as server-side connectors.
+    const segments: RouteSegment[] = [];
+    let cursor = start;
+    sourceSegments.forEach((segment) => {
+      const first = segment.points[0];
+      if (haversineDistance(cursor, first) > CONNECTION_GAP_M) {
+        segments.push({ trafficType: 3, label: '도보 연결', distance: haversineDistance(cursor, first), sectionTime: 0, points: [cursor, first] });
+      }
+      segments.push(segment);
+      cursor = segment.points.at(-1)!;
+    });
+    if (haversineDistance(cursor, end) > CONNECTION_GAP_M) {
+      segments.push({ trafficType: 3, label: '도보 연결', distance: haversineDistance(cursor, end), sectionTime: 0, points: [cursor, end] });
+    }
     segments.forEach((segment) => {
       const path = segment.points.map((point) => { const value = new window.kakao.maps.LatLng(point.lat, point.lng); bounds.extend(value); return value; });
       const color = selectedMode === 'walk' ? '#334155' : (SEGMENT_COLORS[segment.trafficType] ?? '#64748b');
