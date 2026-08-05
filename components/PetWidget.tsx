@@ -63,13 +63,27 @@ export default function PetWidget() {
   const busy = useRef(false);
   const reactingRef = useRef(false);
 
-  // 렌더와 무관하게 항상 최신 값을 읽기 위한 ref (떠다니기 타이머가 매번 재생성되지 않도록)
-  const messageRef = useRef(message);
-  messageRef.current = message;
-  const wanderingRef = useRef(wandering);
-  wanderingRef.current = wandering;
-  const draggingRef = useRef(dragging);
-  draggingRef.current = dragging;
+  // 렌더 타이밍과 무관하게 "말하는 중 / 생각하는 중 / 드래그 중"을 항상 즉시 반영하는 ref들.
+  // (렌더에서 동기화하면 setInterval 콜백이 한 틱 묵은 값을 읽는 레이스가 생겨서,
+  //  상태를 바꾸는 지점에서 직접 ref도 같이 갱신한다.)
+  const messageRef = useRef<string | null>(null);
+  const thinkingRef = useRef(false);
+  const draggingRef = useRef(false);
+  const wanderingRef = useRef(true);
+  wanderingRef.current = wandering; // 메뉴 클릭으로만 바뀌므로 렌더 동기화로도 충분
+
+  const setMessageBoth = (v: string | null) => {
+    messageRef.current = v;
+    setMessage(v);
+  };
+  const setThinkingBoth = (v: boolean) => {
+    thinkingRef.current = v;
+    setThinking(v);
+  };
+  const setDraggingBoth = (v: boolean) => {
+    draggingRef.current = v;
+    setDragging(v);
+  };
 
   const dragStart = useRef<{
     x: number;
@@ -80,11 +94,12 @@ export default function PetWidget() {
   const movedRef = useRef(false);
 
   const speak = useCallback((text: string, notify = false) => {
-    setMessage(text);
-    setThinking(false);
+    setMessageBoth(text);
+    setThinkingBoth(false);
     if (dismissTimer.current) clearTimeout(dismissTimer.current);
-    dismissTimer.current = setTimeout(() => setMessage(null), 12000);
+    dismissTimer.current = setTimeout(() => setMessageBoth(null), 12000);
     if (notify) showOsNotification('출퇴근전쟁봇', text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 떠다니기: 한 번만 설정되는 안정적인 인터벌. 매 tick마다 최신 ref 값을 확인
@@ -92,7 +107,12 @@ export default function PetWidget() {
     setPos((p) => p ?? randomPosition());
 
     const interval = setInterval(() => {
-      if (draggingRef.current || messageRef.current || !wanderingRef.current)
+      if (
+        draggingRef.current ||
+        messageRef.current ||
+        thinkingRef.current ||
+        !wanderingRef.current
+      )
         return;
       setPos(randomPosition());
     }, WANDER_INTERVAL_MS);
@@ -178,8 +198,8 @@ export default function PetWidget() {
 
     setPoked(true);
     setTimeout(() => setPoked(false), 400);
-    setThinking(true);
-    setMessage(null);
+    setThinkingBoth(true);
+    setMessageBoth(null);
 
     const text = await generatePokeMessage(user.character_stage);
     speak(text);
@@ -193,8 +213,8 @@ export default function PetWidget() {
 
     setHappy(true);
     setShowHeart(true);
-    setThinking(true);
-    setMessage(null);
+    setThinkingBoth(true);
+    setMessageBoth(null);
     setTimeout(() => setHappy(false), 700);
     setTimeout(() => setShowHeart(false), 1000);
 
@@ -213,9 +233,9 @@ export default function PetWidget() {
     });
   };
 
-  // 드래그: 클릭과 드래그를 구분 (일정 거리 이상 움직여야 드래그로 인식)
+  // 드래그: 왼쪽 버튼만 처리 (우클릭은 컨텍스트 메뉴 전용, 클릭 반응과 겹치면 안 됨)
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (!pos) return;
+    if (!pos || e.button !== 0) return;
     try {
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     } catch {
@@ -232,7 +252,7 @@ export default function PetWidget() {
 
     if (!movedRef.current && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) {
       movedRef.current = true;
-      setDragging(true);
+      setDraggingBoth(true);
     }
 
     if (movedRef.current) {
@@ -243,10 +263,13 @@ export default function PetWidget() {
     }
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    if (!dragStart.current) return; // 왼쪽 버튼 pointerdown이 없었으면(우클릭 등) 아무것도 안 함
+
     const wasDragging = movedRef.current;
     dragStart.current = null;
-    setDragging(false);
+    setDraggingBoth(false);
 
     if (!wasDragging) {
       handlePoke();
@@ -273,7 +296,7 @@ export default function PetWidget() {
               {message}
             </p>
             <button
-              onClick={() => setMessage(null)}
+              onClick={() => setMessageBoth(null)}
               className="text-neutral-300 hover:text-neutral-500 shrink-0"
             >
               <X size={13} />
@@ -298,8 +321,8 @@ export default function PetWidget() {
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-            onClick={() => {
-              if (!movedRef.current) handlePoke();
+            onClick={(e) => {
+              if (e.button === 0 && !movedRef.current) handlePoke();
             }}
             onContextMenu={handleContextMenu}
             className={`pointer-events-auto w-12 h-12 rounded-full bg-gradient-to-b from-blue-500 to-blue-600 shadow-lg flex items-center justify-center text-white cursor-grab active:cursor-grabbing touch-none ${
