@@ -1,10 +1,17 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { X, Navigation, Egg } from 'lucide-react';
+import { X, Navigation, Egg, MapPin } from 'lucide-react';
 import { User, CommuteRecord } from '@/lib/types';
 import { loadKakaoMapSdk, geocodeAddress } from '@/lib/kakaoMap';
-import { LatLng, haversineDistance, distanceToPolyline, remainingDistanceAlongPolyline } from '@/lib/geo';
+import {
+  LatLng,
+  haversineDistance,
+  distanceToPolyline,
+  remainingDistanceAlongPolyline,
+  pointAtDistance,
+  nearestPointOnPolyline,
+} from '@/lib/geo';
 
 interface CommuteMapViewProps {
   user: User;
@@ -32,6 +39,9 @@ const OFF_ROUTE_THRESHOLD_M = 70;
 const OFF_ROUTE_STREAK_REQUIRED = 3;
 const MAX_ZOOM_LEVEL = 9; // 이보다 더 멀리 줌아웃하지 않음 (경로가 너무 길면 선이 안 보일 정도로 축소되는 것 방지)
 const MILESTONE_MINUTES = [10, 5, 2];
+const MANUAL_STEP_M = 15;
+const RESUME_PROMPT_DELAY_MS = 10000;
+const INITIAL_POSITION_TIMEOUT_MS = 8000;
 
 const SEGMENT_STYLE: Record<number, { color: string; dashed?: boolean }> = {
   1: { color: '#22c55e' }, // 지하철
@@ -74,6 +84,35 @@ async function fetchTransitRoute(start: LatLng, dest: LatLng) {
   return data as { summary: RouteSummary; segments: RouteSegment[]; polyline: LatLng[] };
 }
 
+function getInitialPosition(timeoutMs = INITIAL_POSITION_TIMEOUT_MS): Promise<LatLng | null> {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+
+    let done = false;
+    const finish = (value: LatLng | null) => {
+      if (done) return;
+      done = true;
+      resolve(value);
+    };
+
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        clearTimeout(timer);
+        finish({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      },
+      () => {
+        clearTimeout(timer);
+        finish(null);
+      },
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 10000 }
+    );
+  });
+}
+
 export default function CommuteMapView({
   user,
   activeRecord,
@@ -93,6 +132,10 @@ export default function CommuteMapView({
   const offRouteStreakRef = useRef(0);
   const announcedMinutesRef = useRef<Set<number>>(new Set());
 
+  const manualModeRef = useRef(false);
+  const simDistanceRef = useRef(0);
+  const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [now, setNow] = useState(() => new Date());
   const [arriving, setArriving] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
@@ -100,6 +143,8 @@ export default function CommuteMapView({
   const [routeSummary, setRouteSummary] = useState<RouteSummary | null>(null);
   const [offRoute, setOffRoute] = useState(false);
   const [petMessage, setPetMessage] = useState<string | null>(null);
+  const [manualMode, setManualMode] = useState(false);
+  const [showResumePrompt, setShowResumePrompt] = useState(false);
 
   const destLabel = activeRecord.type === 'commute' ? '회사' : '집';
 
@@ -110,6 +155,9 @@ export default function CommuteMapView({
 
   useEffect(() => {
     let cancelled = false;
+    let keyHandler: ((e: KeyboardEvent) => void) | null = null;
+    let clickHandler: ((e: kakao.maps.MouseEvent) => void) | null = null;
+    let mapInstance: kakao.maps.Map | null = null;
 
     loadKakaoMapSdk()
       .then(async (kakao) => {
@@ -120,20 +168,84 @@ export default function CommuteMapView({
           level: 5,
         });
         mapRef.current = map;
+        mapInstance = map;
 
-        const homeCoord = user.home_address
-          ? await geocodeAddress(kakao, user.home_address)
-          : null;
-        const workCoord = user.work_address
-          ? await geocodeAddress(kakao, user.work_address)
-          : null;
+        const enterManualMode = () => {
+          manualModeRef.current = true;
+          setManualMode(true);
+          setShowResumePrompt(false);
+          if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+          resumeTimerRef.current = setTimeout(
+            () => setShowResumePrompt(true),
+            RESUME_PROMPT_DELAY_MS
+          );
+        };
+
+        const applyPosition = (plainPoint: LatLng) => {
+          if (!mapRef.current) return;
+          const point = new kakao.maps.LatLng(plainPoint.lat, plainPoint.lng);
+
+          if (!myMarkerRef.current) {
+            myMarkerRef.current = new kakao.maps.CustomOverlay({
+              position: point,
+              content: createPulseMarkerEl(),
+              zIndex: 10,
+            });
+            myMarkerRef.current.setMap(mapRef.current);
+            mapRef.current.setCenter(point);
+            mapRef.current.setLevel(4);
+          } else {
+            myMarkerRef.current.setPosition(point);
+            mapRef.current.panTo(point);
+          }
+
+          trailRef.current = [...trailRef.current, point];
+          trailLineRef.current?.setPath(trailRef.current);
+          setReady(true);
+
+          const routePolyline = routePolylineRef.current;
+          if (routePolyline.length >= 2) {
+            const distOff = distanceToPolyline(plainPoint, routePolyline);
+            offRouteStreakRef.current =
+              distOff > OFF_ROUTE_THRESHOLD_M ? offRouteStreakRef.current + 1 : 0;
+            const isOffRoute = offRouteStreakRef.current >= OFF_ROUTE_STREAK_REQUIRED;
+            setOffRoute(isOffRoute);
+
+            if (isOffRoute) {
+              setPetMessage('어? 지금 경로에서 벗어난 것 같아! 다시 확인해봐');
+            } else {
+              const remaining = remainingDistanceAlongPolyline(plainPoint, routePolyline);
+              const totalTime = routeTotalTimeRef.current;
+              if (totalTime && routeTotalDistanceRef.current > 0) {
+                const estimatedMinutes = Math.max(
+                  1,
+                  Math.round(totalTime * (remaining / routeTotalDistanceRef.current))
+                );
+                const nextMilestone = MILESTONE_MINUTES.find(
+                  (m) => estimatedMinutes <= m && !announcedMinutesRef.current.has(m)
+                );
+                if (nextMilestone) {
+                  announcedMinutesRef.current.add(nextMilestone);
+                  setPetMessage(`${destLabel}까지 이제 ${estimatedMinutes}분밖에 안 남았어!`);
+                }
+              }
+            }
+          }
+        };
+
+        const [homeCoord, workCoord, liveStart] = await Promise.all([
+          user.home_address ? geocodeAddress(kakao, user.home_address) : Promise.resolve(null),
+          user.work_address ? geocodeAddress(kakao, user.work_address) : Promise.resolve(null),
+          getInitialPosition(),
+        ]);
 
         if (cancelled) return;
 
-        const startCoord = activeRecord.type === 'commute' ? homeCoord : workCoord;
+        const addressStartCoord = activeRecord.type === 'commute' ? homeCoord : workCoord;
         const destCoord = activeRecord.type === 'commute' ? workCoord : homeCoord;
+        const startCoord = liveStart ?? addressStartCoord;
 
-        if (startCoord) {
+        if (!liveStart && startCoord) {
           new kakao.maps.Marker({
             position: new kakao.maps.LatLng(startCoord.lat, startCoord.lng),
             map,
@@ -215,6 +327,44 @@ export default function CommuteMapView({
         });
         trailLineRef.current.setMap(map);
 
+        keyHandler = (e: KeyboardEvent) => {
+          if (routePolylineRef.current.length < 2) return;
+          const key = e.key.toLowerCase();
+          let delta = 0;
+          if (['w', 'd', 'arrowup', 'arrowright'].includes(key)) delta = MANUAL_STEP_M;
+          else if (['s', 'a', 'arrowdown', 'arrowleft'].includes(key)) delta = -MANUAL_STEP_M;
+          else return;
+
+          e.preventDefault();
+          simDistanceRef.current = Math.max(
+            0,
+            Math.min(routeTotalDistanceRef.current, simDistanceRef.current + delta)
+          );
+          enterManualMode();
+          applyPosition(pointAtDistance(routePolylineRef.current, simDistanceRef.current));
+        };
+        window.addEventListener('keydown', keyHandler);
+
+        clickHandler = (mouseEvent: kakao.maps.MouseEvent) => {
+          if (routePolylineRef.current.length < 2) return;
+          const clicked: LatLng = {
+            lat: mouseEvent.latLng.getLat(),
+            lng: mouseEvent.latLng.getLng(),
+          };
+          const { point, distanceFromStart } = nearestPointOnPolyline(
+            clicked,
+            routePolylineRef.current
+          );
+          simDistanceRef.current = distanceFromStart;
+          enterManualMode();
+          applyPosition(point);
+        };
+        kakao.maps.event.addListener(map, 'click', clickHandler);
+
+        if (liveStart) {
+          applyPosition(liveStart);
+        }
+
         if (!navigator.geolocation) {
           setGpsError('이 기기에서는 위치 정보를 사용할 수 없습니다');
           setReady(true);
@@ -223,62 +373,12 @@ export default function CommuteMapView({
 
         watchIdRef.current = navigator.geolocation.watchPosition(
           (pos) => {
-            if (cancelled || !mapRef.current) return;
-            const { latitude, longitude } = pos.coords;
-            const point = new kakao.maps.LatLng(latitude, longitude);
-            const plainPoint: LatLng = { lat: latitude, lng: longitude };
-
-            if (!myMarkerRef.current) {
-              myMarkerRef.current = new kakao.maps.CustomOverlay({
-                position: point,
-                content: createPulseMarkerEl(),
-                zIndex: 10,
-              });
-              myMarkerRef.current.setMap(mapRef.current);
-              mapRef.current.setCenter(point);
-              mapRef.current.setLevel(4);
-            } else {
-              myMarkerRef.current.setPosition(point);
-              mapRef.current.panTo(point);
-            }
-
-            trailRef.current = [...trailRef.current, point];
-            trailLineRef.current?.setPath(trailRef.current);
+            if (cancelled || manualModeRef.current) return;
             setGpsError(null);
-            setReady(true);
-
-            const routePolyline = routePolylineRef.current;
-            if (routePolyline.length >= 2) {
-              const distOff = distanceToPolyline(plainPoint, routePolyline);
-              offRouteStreakRef.current =
-                distOff > OFF_ROUTE_THRESHOLD_M ? offRouteStreakRef.current + 1 : 0;
-              const isOffRoute = offRouteStreakRef.current >= OFF_ROUTE_STREAK_REQUIRED;
-              setOffRoute(isOffRoute);
-
-              if (isOffRoute) {
-                setPetMessage('어? 지금 경로에서 벗어난 것 같아! 다시 확인해봐');
-              } else {
-                const remaining = remainingDistanceAlongPolyline(plainPoint, routePolyline);
-                const totalTime = routeTotalTimeRef.current;
-                if (totalTime && routeTotalDistanceRef.current > 0) {
-                  const estimatedMinutes = Math.max(
-                    1,
-                    Math.round(
-                      totalTime * (remaining / routeTotalDistanceRef.current)
-                    )
-                  );
-                  const nextMilestone = MILESTONE_MINUTES.find(
-                    (m) => estimatedMinutes <= m && !announcedMinutesRef.current.has(m)
-                  );
-                  if (nextMilestone) {
-                    announcedMinutesRef.current.add(nextMilestone);
-                    setPetMessage(`${destLabel}까지 이제 ${estimatedMinutes}분밖에 안 남았어!`);
-                  }
-                }
-              }
-            }
+            applyPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
           },
           (err) => {
+            if (manualModeRef.current) return;
             setGpsError(
               err.code === err.PERMISSION_DENIED
                 ? '위치 권한이 거부되었습니다. 브라우저 설정에서 허용해주세요'
@@ -299,6 +399,11 @@ export default function CommuteMapView({
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
       }
+      if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+      if (keyHandler) window.removeEventListener('keydown', keyHandler);
+      if (clickHandler && mapInstance && typeof window !== 'undefined' && window.kakao?.maps?.event) {
+        window.kakao.maps.event.removeListener(mapInstance, 'click', clickHandler);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.home_address, user.work_address, activeRecord.type, destLabel]);
@@ -312,6 +417,12 @@ export default function CommuteMapView({
     } finally {
       setArriving(false);
     }
+  };
+
+  const resumeTracking = () => {
+    manualModeRef.current = false;
+    setManualMode(false);
+    setShowResumePrompt(false);
   };
 
   return (
@@ -356,11 +467,30 @@ export default function CommuteMapView({
           </div>
         )}
 
-        {gpsError && (
+        {showResumePrompt ? (
+          <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-2 bg-amber-50 text-amber-700 text-[12px] font-medium px-3 py-2 rounded-[10px]">
+            <span>위치 추적이 멈춰있어요. 다시 연결할까요?</span>
+            <button
+              onClick={resumeTracking}
+              className="shrink-0 px-2.5 py-1 rounded-full bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-semibold transition-colors"
+            >
+              연결
+            </button>
+          </div>
+        ) : manualMode ? (
+          <div className="absolute bottom-3 left-3 right-3 flex items-center gap-2 bg-blue-50 text-blue-600 text-[12px] font-medium px-3 py-2 rounded-[10px]">
+            <MapPin size={14} />
+            수동으로 위치를 옮기는 중이에요
+          </div>
+        ) : gpsError ? (
           <div className="absolute bottom-3 left-3 right-3 flex items-center gap-2 bg-red-50 text-red-600 text-[12px] font-medium px-3 py-2 rounded-[10px]">
             <Navigation size={14} />
             {gpsError}
           </div>
+        ) : (
+          <p className="absolute bottom-3 left-3 text-[10px] text-neutral-400 bg-white/80 px-2 py-1 rounded-full">
+            지도를 클릭하거나 방향키/WASD로 이동해볼 수 있어요
+          </p>
         )}
       </div>
 

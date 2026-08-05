@@ -69,6 +69,23 @@ declare global {
       setPosition(latlng: LatLng): void;
     }
 
+    interface MouseEvent {
+      latLng: LatLng;
+    }
+
+    namespace event {
+      function addListener(
+        target: Map,
+        type: string,
+        handler: (event: MouseEvent) => void
+      ): void;
+      function removeListener(
+        target: Map,
+        type: string,
+        handler: (event: MouseEvent) => void
+      ): void;
+    }
+
     namespace services {
       enum Status {
         OK = 'OK',
