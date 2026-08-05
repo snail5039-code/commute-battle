@@ -30,6 +30,7 @@ interface RouteSegment {
 const SEOUL_CITY_HALL = { lat: 37.5665, lng: 126.978 };
 const OFF_ROUTE_THRESHOLD_M = 70;
 const OFF_ROUTE_STREAK_REQUIRED = 3;
+const MAX_ZOOM_LEVEL = 9; // 이보다 더 멀리 줌아웃하지 않음 (경로가 너무 길면 선이 안 보일 정도로 축소되는 것 방지)
 const MILESTONE_MINUTES = [10, 5, 2];
 
 const SEGMENT_STYLE: Record<number, { color: string; dashed?: boolean }> = {
@@ -177,6 +178,10 @@ export default function CommuteMapView({
             const bounds = new kakao.maps.LatLngBounds();
             route.polyline.forEach((p) => bounds.extend(new kakao.maps.LatLng(p.lat, p.lng)));
             map.setBounds(bounds);
+            if (map.getLevel() > MAX_ZOOM_LEVEL) {
+              map.setLevel(MAX_ZOOM_LEVEL);
+              map.setCenter(new kakao.maps.LatLng(startCoord.lat, startCoord.lng));
+            }
           } else if (!cancelled) {
             const fallbackLine = new kakao.maps.Polyline({
               path: [
@@ -310,7 +315,7 @@ export default function CommuteMapView({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+    <div className="absolute inset-0 z-10 bg-white flex flex-col">
       <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100">
         <div>
           <p className="text-[13px] font-semibold text-neutral-900">
