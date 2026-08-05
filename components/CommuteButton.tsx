@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { LogIn, LogOut, Clock, Palmtree, Check } from 'lucide-react';
+import { LogIn, LogOut, Clock, Palmtree, Check, MapPin } from 'lucide-react';
 import { User, CommuteRecord, RouteGuideResponse } from '@/lib/types';
 import { generateRouteGuide } from '@/lib/gemini';
 import { isCommuteOnTime, isReturnOnTime } from '@/lib/onTime';
 import { supabase } from '@/lib/supabase';
 import RouteModal from './RouteModal';
+import CommuteMapView from './CommuteMapView';
 
 interface CommuteButtonProps {
   user: User;
@@ -42,6 +43,7 @@ export default function CommuteButton({
   const [routeGuide, setRouteGuide] = useState<RouteGuideResponse | null>(null);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const [showMap, setShowMap] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
   const activeRecord = records.find(
@@ -261,13 +263,22 @@ export default function CommuteButton({
         </div>
 
         {activeRecord && (
-          <button
-            onClick={handleArrival}
-            disabled={loadingAction === 'arrive'}
-            className="w-full flex items-center justify-center gap-2 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[12px] text-[13px] font-semibold disabled:opacity-50 transition-colors"
-          >
-            {loadingAction === 'arrive' ? '기록 중...' : '도착'}
-          </button>
+          <div className="flex gap-2.5">
+            <button
+              onClick={() => setShowMap(true)}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-[12px] text-[13px] font-semibold transition-colors"
+            >
+              <MapPin size={15} strokeWidth={2.25} />
+              위치
+            </button>
+            <button
+              onClick={handleArrival}
+              disabled={loadingAction === 'arrive'}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[12px] text-[13px] font-semibold disabled:opacity-50 transition-colors"
+            >
+              {loadingAction === 'arrive' ? '기록 중...' : '도착'}
+            </button>
+          </div>
         )}
 
         <div className="grid grid-cols-2 gap-2.5 pt-1">
@@ -297,10 +308,23 @@ export default function CommuteButton({
           user={user}
           type={routeType}
           onClose={() => setShowRoute(false)}
-          onDeparted={() => {
+          onDeparted={async () => {
             setShowRoute(false);
-            onChange();
+            await onChange();
+            setShowMap(true);
           }}
+        />
+      )}
+
+      {showMap && activeRecord && (
+        <CommuteMapView
+          user={user}
+          activeRecord={activeRecord}
+          onArrive={async () => {
+            await handleArrival();
+            setShowMap(false);
+          }}
+          onClose={() => setShowMap(false)}
         />
       )}
     </>
