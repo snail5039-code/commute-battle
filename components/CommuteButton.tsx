@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { LogIn, LogOut, Clock, Palmtree, Check } from 'lucide-react';
 import { User, CommuteRecord, RouteGuideResponse } from '@/lib/types';
 import { generateRouteGuide } from '@/lib/gemini';
+import { isCommuteOnTime, isReturnOnTime } from '@/lib/onTime';
 import { supabase } from '@/lib/supabase';
 import RouteModal from './RouteModal';
 
@@ -119,7 +120,13 @@ export default function CommuteButton({
       const duration = Math.round(
         (arrivedAt.getTime() - start.getTime()) / 60000
       );
-      const expGained = 10;
+
+      const onTime =
+        activeRecord.type === 'commute'
+          ? isCommuteOnTime(records, arrivedAt)
+          : isReturnOnTime(records, start);
+
+      const expGained = onTime ? 15 : 10;
 
       const { error } = await supabase
         .from('commute_records')
@@ -128,6 +135,7 @@ export default function CommuteButton({
           commute_subtype: 'arrival',
           duration_minutes: duration,
           exp_gained: expGained,
+          is_on_time: onTime,
           updated_at: arrivedAt.toISOString(),
         })
         .eq('id', activeRecord.id);

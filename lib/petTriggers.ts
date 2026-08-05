@@ -1,6 +1,14 @@
 import { CommuteRecord } from './types';
 
-export type PetTriggerKey = 'commute_late' | 'return_late' | 'evening_checkin';
+export type PetTriggerKey =
+  | 'praise_commute'
+  | 'praise_return'
+  | 'commute_late_1'
+  | 'commute_late_2'
+  | 'commute_late_3'
+  | 'return_late_1'
+  | 'return_late_2'
+  | 'evening_checkin';
 
 function avgMinutesOfDay(
   records: CommuteRecord[],
@@ -39,12 +47,29 @@ export function detectPetTrigger(
   const avgCommuteStart = avgMinutesOfDay(records, 'commute', 8 * 60);
   const avgReturnStart = avgMinutesOfDay(records, 'return', 18 * 60);
 
-  if (!commuteToday && nowMin > avgCommuteStart + 20) return 'commute_late';
-  if (commuteToday?.end_time && !returnToday && nowMin > avgReturnStart + 60)
-    return 'return_late';
-  if (returnToday?.end_time && nowMin >= 19 * 60) return 'evening_checkin';
+  // 우선순위 순서로 후보를 나열하고, 아직 말하지 않은 것 중 첫 번째를 선택
+  const candidates: PetTriggerKey[] = [];
 
-  return null;
+  if (commuteToday?.end_time && commuteToday.is_on_time)
+    candidates.push('praise_commute');
+  if (returnToday?.end_time && returnToday.is_on_time)
+    candidates.push('praise_return');
+
+  if (!commuteToday) {
+    if (nowMin > avgCommuteStart + 70) candidates.push('commute_late_3');
+    if (nowMin > avgCommuteStart + 40) candidates.push('commute_late_2');
+    if (nowMin > avgCommuteStart + 20) candidates.push('commute_late_1');
+  }
+
+  if (commuteToday?.end_time && !returnToday) {
+    if (nowMin > avgReturnStart + 120) candidates.push('return_late_2');
+    if (nowMin > avgReturnStart + 60) candidates.push('return_late_1');
+  }
+
+  if (returnToday?.end_time && nowMin >= 19 * 60)
+    candidates.push('evening_checkin');
+
+  return candidates.find((c) => !hasSpokenToday(c, now)) ?? null;
 }
 
 export function hasSpokenToday(trigger: PetTriggerKey, now: Date): boolean {
