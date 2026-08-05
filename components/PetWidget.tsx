@@ -70,7 +70,6 @@ export default function PetWidget() {
   const thinkingRef = useRef(false);
   const draggingRef = useRef(false);
   const wanderingRef = useRef(true);
-  wanderingRef.current = wandering; // 메뉴 클릭으로만 바뀌므로 렌더 동기화로도 충분
 
   const setMessageBoth = (v: string | null) => {
     messageRef.current = v;
@@ -99,12 +98,13 @@ export default function PetWidget() {
     if (dismissTimer.current) clearTimeout(dismissTimer.current);
     dismissTimer.current = setTimeout(() => setMessageBoth(null), 12000);
     if (notify) showOsNotification('출퇴근전쟁봇', text);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 떠다니기: 한 번만 설정되는 안정적인 인터벌. 매 tick마다 최신 ref 값을 확인
   useEffect(() => {
-    setPos((p) => p ?? randomPosition());
+    const positionTimer = setTimeout(() => {
+      setPos((p) => p ?? randomPosition());
+    }, 0);
 
     const interval = setInterval(() => {
       if (
@@ -121,6 +121,7 @@ export default function PetWidget() {
     window.addEventListener('resize', onResize);
 
     return () => {
+      clearTimeout(positionTimer);
       clearInterval(interval);
       window.removeEventListener('resize', onResize);
     };
@@ -178,9 +179,10 @@ export default function PetWidget() {
   }, [user, records, speak]);
 
   useEffect(() => {
-    check();
+    const initialCheck = setTimeout(check, 0);
     const interval = setInterval(check, CHECK_INTERVAL_MS);
     return () => {
+      clearTimeout(initialCheck);
       clearInterval(interval);
       if (dismissTimer.current) clearTimeout(dismissTimer.current);
     };
@@ -353,7 +355,11 @@ export default function PetWidget() {
         >
           <button
             onClick={() => {
-              setWandering((w) => !w);
+              setWandering((w) => {
+                const next = !w;
+                wanderingRef.current = next;
+                return next;
+              });
               setMenu(null);
             }}
             className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[8px] text-[12px] text-neutral-700 hover:bg-neutral-100 transition-colors"

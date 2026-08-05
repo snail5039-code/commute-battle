@@ -12,6 +12,8 @@ export default function SwipeNav({ children }: { children: React.ReactNode }) {
   const start = useRef<{ x: number; y: number } | null>(null);
 
   const onTouchStart = (e: React.TouchEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('input, textarea, select, button, [data-no-swipe]')) return;
     const t = e.touches[0];
     start.current = { x: t.clientX, y: t.clientY };
   };
@@ -40,7 +42,7 @@ export default function SwipeNav({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="min-h-screen">
+    <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="min-h-screen touch-pan-y">
       {children}
     </div>
   );

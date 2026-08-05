@@ -7,14 +7,16 @@ interface TopBarProps {
 
 export default function TopBar({ title, subtitle }: TopBarProps) {
   return (
-    <header className="h-16 bg-white/60 backdrop-blur-xl border-b border-black/[0.06] flex items-center px-6 md:px-8 shrink-0 sticky top-0 z-10">
-      <div>
-        <h1 className="text-[15px] font-semibold text-neutral-900 tracking-tight">
+    <header className="sticky top-0 z-20 shrink-0 border-b border-slate-200/80 bg-white/80 px-5 backdrop-blur-xl md:px-8">
+      <div className="shell-content flex min-h-16 items-center py-3">
+        <div>
+        <h1 className="text-base font-bold tracking-tight text-slate-950 md:text-lg">
           {title}
         </h1>
         {subtitle && (
-          <p className="text-[12px] text-neutral-500">{subtitle}</p>
+          <p className="mt-0.5 text-xs text-slate-500 md:text-[13px]">{subtitle}</p>
         )}
+        </div>
       </div>
     </header>
   );

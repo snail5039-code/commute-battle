@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import MobileTabBar from './MobileTabBar';
@@ -10,14 +11,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isLoginPage = pathname === '/login';
 
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.density = localStorage.getItem('uiCompact') === 'true' ? 'compact' : '';
+    root.dataset.contrast = localStorage.getItem('uiContrast') === 'true' ? 'high' : '';
+    root.dataset.motion = localStorage.getItem('uiReducedMotion') === 'true' ? 'reduced' : '';
+  }, []);
+
   if (isLoginPage) {
     return <>{children}</>;
   }
 
   return (
-    <div className="flex flex-1 min-h-screen bg-[#f5f6f8]">
+    <div className="flex min-h-screen bg-transparent">
       <Sidebar />
-      <main className="relative flex-1 min-w-0 pb-16 md:pb-0">
+      <main id="main-content" className="relative min-w-0 flex-1 pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
         <SwipeNav>{children}</SwipeNav>
       </main>
       <MobileTabBar />

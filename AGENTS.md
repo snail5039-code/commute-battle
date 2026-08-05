@@ -27,3 +27,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Prefer focused fixes that match the existing component and library style.
 - Avoid editing generated artifacts such as `.next/`, `next-env.d.ts`, `tsconfig.tsbuildinfo`, and `node_modules/`.
 - OneDrive can lock `.next/`; if builds fail with cache lock errors, report it instead of deleting cache without explicit permission.
+
+## Visible Task Delegation
+- When the user requests work to be split into sessions, create user-visible Codex tasks that appear in the sidebar; do not rely only on invisible internal delegation.
+- Assign each child task explicit owned files, acceptance criteria, and verification commands, and avoid overlapping ownership.
+- The primary task must review and integrate all results, run lint/build and functional checks, reassign failures, and only then commit and push.
+- Keep task creation, progress, test failures, fixes, and Git results visible to the user.
+
+## Free-First Principle
+- Prefer free and open-source fonts, libraries, APIs, assets, and service tiers.
+- Never add paid-only or billing-required dependencies, APIs, services, or assets without the user's explicit approval.
+- Confirm required third-party features work on a free tier and provide a no-cost fallback whenever practical.

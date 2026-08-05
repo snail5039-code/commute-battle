@@ -1,30 +1,22 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-import AppShell from "@/components/AppShell";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import type { Metadata, Viewport } from 'next';
+import './globals.css';
+import AppShell from '@/components/AppShell';
 
 export const metadata: Metadata = {
-  title: "출퇴근전쟁봇",
-  description: "출퇴근을 게임처럼, 배지와 캐릭터 성장으로 무장한 출퇴근 기록 서비스",
+  title: '출퇴근 생존일지',
+  description: '매일의 출퇴근을 기록하고 캐릭터와 함께 성장하세요.',
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: '#f7f8fc',
+};
+
+export default function RootLayout({ children }: LayoutProps<'/'>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">
+    <html lang="ko" className="h-full antialiased">
+      <body className="min-h-full">
         <AppShell>{children}</AppShell>
       </body>
     </html>

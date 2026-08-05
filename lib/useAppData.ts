@@ -37,7 +37,8 @@ export function useAppData() {
   }, [setUser]);
 
   useEffect(() => {
-    refetch();
+    const timer = setTimeout(refetch, 0);
+    return () => clearTimeout(timer);
   }, [refetch]);
 
   return { user, records, loading, refetch };

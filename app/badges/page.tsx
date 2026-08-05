@@ -1,7 +1,7 @@
 'use client';
 
 import { useAppData } from '@/lib/useAppData';
-import { BADGES } from '@/lib/badges';
+import { BADGES, getBadgeProgress } from '@/lib/badges';
 import TopBar from '@/components/TopBar';
 import BadgeIcon from '@/components/BadgeIcon';
 
@@ -20,9 +20,8 @@ export default function BadgesPage() {
     );
   }
 
-  const completedCount = BADGES.filter(
-    (b) => b.progress(records) >= b.target
-  ).length;
+  const badges = BADGES.map((badge) => ({ badge, ...getBadgeProgress(badge, records) }));
+  const completedCount = badges.filter((item) => item.completed).length;
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -33,21 +32,17 @@ export default function BadgesPage() {
 
       <div className="flex-1 p-4 md:p-8">
         <div className="max-w-3xl mx-auto grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {BADGES.map((badge) => {
-            const progress = Math.min(badge.progress(records), badge.target);
-            const isCompleted = progress >= badge.target;
-            const percent = (progress / badge.target) * 100;
-
+          {badges.map(({ badge, displayed, percent, completed }) => {
             return (
               <div
                 key={badge.key}
                 className={`card p-5 flex items-start gap-4 ${
-                  !isCompleted && 'opacity-90'
+                  !completed && 'opacity-90'
                 }`}
               >
                 <div
                   className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${
-                    isCompleted
+                    completed
                       ? 'bg-blue-50 ring-1 ring-blue-100 text-blue-500'
                       : 'bg-neutral-100 text-neutral-400'
                   }`}
@@ -59,12 +54,12 @@ export default function BadgesPage() {
                   <div className="flex items-center justify-between">
                     <h3
                       className={`text-[13px] font-semibold ${
-                        isCompleted ? 'text-neutral-900' : 'text-neutral-500'
+                        completed ? 'text-neutral-900' : 'text-neutral-500'
                       }`}
                     >
                       {badge.name}
                     </h3>
-                    {isCompleted && (
+                    {completed && (
                       <span className="text-[11px] font-semibold text-blue-600">
                         완료
                       </span>
@@ -74,7 +69,7 @@ export default function BadgesPage() {
                     {badge.description}
                   </p>
 
-                  {!isCompleted && (
+                  {!completed && (
                     <div className="mt-2.5">
                       <div className="w-full bg-neutral-100 rounded-full h-1.5">
                         <div
@@ -83,7 +78,7 @@ export default function BadgesPage() {
                         />
                       </div>
                       <p className="text-[11px] text-neutral-400 mt-1">
-                        {progress} / {badge.target}
+                        {displayed} / {badge.target}{badge.unit} · {percent}%
                       </p>
                     </div>
                   )}

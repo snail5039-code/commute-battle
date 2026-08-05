@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { RouteGuideResponse } from './types';
 import { PetTriggerKey } from './petTriggers';
-import { MonthlyStats } from './stats';
+import { getStatsFallbackComment, MonthlyStats } from './stats';
 import { TimeSegment, TIME_SEGMENT_LABELS, IDLE_CHAT_FALLBACK } from './petMessages';
 
 const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY!;
@@ -247,25 +247,29 @@ export async function generateStatsComment(
 [${monthLabel} 데이터]
 - 출근 완료: ${stats.commuteArrivals.length}회
 - 퇴근 완료: ${stats.returnArrivals.length}회
-- 정시 출근: ${stats.onTimeCommutes.length}회, 지각: ${stats.lateCommutes}회
+- 출근과 퇴근을 모두 완료한 날: ${stats.roundTripDays}일
+- 기록한 날: ${stats.activeDays}일
+- 평균 출근 소요 시간: ${stats.avgCommuteDuration === null ? '데이터 없음' : `${stats.avgCommuteDuration}분`}
+- 평균 퇴근 소요 시간: ${stats.avgReturnDuration === null ? '데이터 없음' : `${stats.avgReturnDuration}분`}
+- 주의 이상 날씨에서 완료한 이동: ${stats.challengingWeatherTrips}회
 - 조퇴: ${stats.earlyLeaves.length}회
-- 휴가·병가: ${stats.vacations.length}일
+- 휴가: ${stats.vacations.length}일, 병가: ${stats.sickDays.length}일
 - 결근: ${stats.absences.length}회
-- 생존율: ${stats.survivalRate}%
 
 [규칙]
-- 위 데이터에서 눈에 띄는 패턴 하나를 짚어서 2문장 이내로 코멘트해라
+- 매번 표현과 관점을 바꾸되, 위 데이터에서 실제로 확인되는 패턴 하나만 짚어 2문장 이내로 코멘트해라
 - 질책하지 말고 관찰+격려 톤으로 ("~하시네요", "~군요" 같은 부드러운 존댓말)
-- 데이터가 부족하면 격려만 짧게 해라
+- 정시·지각 여부는 데이터에 없으므로 절대 추측하거나 언급하지 마라
+- 0인 수치를 성취나 문제로 과장하지 말고, 데이터가 부족하면 어떤 기록이 쌓이고 있는지만 말해라
 - 문장만 출력하고 다른 설명은 붙이지 마라`;
 
     const result = await model.generateContent(prompt);
     const text = result.response.text().trim();
 
-    return text || '이번 달도 무사히 버텨내고 있어요. 계속 힘내세요!';
+    return text || getStatsFallbackComment(stats);
   } catch (error) {
     console.error('Gemini Stats Comment Error:', error);
-    return '이번 달도 무사히 버텨내고 있어요. 계속 힘내세요!';
+    return getStatsFallbackComment(stats);
   }
 }
 

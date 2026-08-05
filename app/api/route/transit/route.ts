@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 const ODSAY_BASE = 'https://api.odsay.com/v1/api';
 const ODSAY_REFERER = 'https://commute-battle.vercel.app';
 const TMAP_PEDESTRIAN_URL = 'https://apis.openapi.sk.com/tmap/routes/pedestrian?version=1';
+const EARTH_RADIUS_M = 6371000;
+const MAX_ROUTE_MINUTES = 24 * 60;
 
 interface Point {
   lat: number;
@@ -66,6 +68,43 @@ function compactPoints(points: Point[]): Point[] {
     const prev = points[index - 1];
     return !prev || prev.lat !== point.lat || prev.lng !== point.lng;
   });
+}
+
+function isValidPoint(point: Point): boolean {
+  return Number.isFinite(point.lat) && Number.isFinite(point.lng) &&
+    point.lat >= -90 && point.lat <= 90 && point.lng >= -180 && point.lng <= 180;
+}
+
+function distanceMeters(a: Point, b: Point): number {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(h));
+}
+
+function validateRoute(start: Point, end: Point, route: BuiltRoute): RouteSegment[] {
+  if (!Number.isFinite(route.totalTime) || route.totalTime <= 0 || route.totalTime > MAX_ROUTE_MINUTES) {
+    throw new Error('현실적인 이동 시간 범위를 벗어난 경로입니다.');
+  }
+  const segments = route.segments
+    .map((segment) => ({ ...segment, points: compactPoints(segment.points.filter(isValidPoint)) }))
+    .filter((segment) => segment.points.length >= 2);
+  const polyline = compactPoints(segments.flatMap((segment) => segment.points));
+  if (polyline.length < 2) throw new Error('표시할 수 있는 경로 좌표가 없습니다.');
+
+  const directDistance = distanceMeters(start, end);
+  const maxEndpointGap = Math.max(3000, directDistance * 0.35);
+  if (distanceMeters(start, polyline[0]) > maxEndpointGap ||
+      distanceMeters(end, polyline.at(-1)!) > maxEndpointGap) {
+    throw new Error('경로 좌표가 출발지 또는 도착지와 일치하지 않습니다.');
+  }
+  if (polyline.some((point, index) => index > 0 &&
+      distanceMeters(polyline[index - 1], point) > Math.max(100000, directDistance * 2))) {
+    throw new Error('경로 좌표 사이에 비정상적인 구간이 있습니다.');
+  }
+  return segments;
 }
 
 function endpointPoints(subPath: OdsaySubPath): Point[] | null {
@@ -319,8 +358,11 @@ export async function GET(req: NextRequest) {
     lat: Number(req.nextUrl.searchParams.get('ey')),
   };
 
-  if (![start.lng, start.lat, end.lng, end.lat].every(Number.isFinite)) {
+  if (!isValidPoint(start) || !isValidPoint(end)) {
     return NextResponse.json({ error: '출발지/도착지 좌표가 필요합니다.' }, { status: 400 });
+  }
+  if (distanceMeters(start, end) < 10) {
+    return NextResponse.json({ error: '출발지와 도착지가 너무 가깝습니다.' }, { status: 400 });
   }
 
   const odsayKey = process.env.ODSAY_API_KEY || process.env.NEXT_PUBLIC_ODSAY_API_KEY;
@@ -341,6 +383,12 @@ export async function GET(req: NextRequest) {
   try {
     if (mode === 'walk') {
       const walking = await fetchWalkingRoute(start, end, tmapKey);
+      const walkingRoute: BuiltRoute = {
+        segments: [walking], totalTime: walking.sectionTime, totalWalk: walking.distance,
+        payment: 0, firstStartStation: null, lastEndStation: null, laneCount: 0,
+      };
+      const segments = validateRoute(start, end, walkingRoute);
+      const polyline = compactPoints(segments.flatMap((segment) => segment.points));
       return NextResponse.json({
         summary: {
           totalTime: walking.sectionTime,
@@ -349,13 +397,13 @@ export async function GET(req: NextRequest) {
           firstStartStation: null,
           lastEndStation: null,
         },
-        segments: [walking],
-        polyline: walking.points,
+        segments,
+        polyline,
         debug: {
           provider: 'TMAP',
           subPathCount: 1,
           laneCount: 0,
-          polylinePointCount: walking.points.length,
+          polylinePointCount: polyline.length,
         },
       });
     }
@@ -375,7 +423,7 @@ export async function GET(req: NextRequest) {
       route = await buildLocalAccess(start, end, odsayKey, tmapKey);
     }
 
-    const segments = route.segments.filter((segment) => segment.points.length >= 2);
+    const segments = validateRoute(start, end, route);
     const polyline = compactPoints(segments.flatMap((segment) => segment.points));
     if (polyline.length < 2) throw new Error('표시할 경로 좌표가 없습니다.');
 

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(req: NextRequest) {
   try {
-    const { user_id, type } = await req.json(); // type: 'commute' or 'return'
+    const { user_id } = await req.json();
     const today = new Date().toISOString().split('T')[0];
 
     // 같은 날 기존 기록 확인

@@ -5,46 +5,43 @@ import { usePathname } from 'next/navigation';
 import { LogIn, Siren } from 'lucide-react';
 import { NAV_ITEMS } from '@/lib/nav';
 
+const LABELS: Record<string, string> = {
+  '/': '홈', '/map': '이동', '/badges': '배지', '/stats': '통계', '/settings': '설정',
+};
+
 export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="hidden md:flex w-16 shrink-0 bg-white/70 backdrop-blur-xl border-r border-black/[0.06] flex-col items-center">
-      <div className="h-16 flex items-center justify-center">
-        <div className="w-8 h-8 rounded-[9px] bg-gradient-to-b from-blue-500 to-blue-600 flex items-center justify-center shadow-sm shrink-0">
-          <Siren size={16} className="text-white" strokeWidth={2.25} />
-        </div>
-      </div>
+    <aside className="sticky top-0 hidden h-screen w-[var(--sidebar-width)] shrink-0 flex-col border-r border-slate-200/80 bg-white/75 backdrop-blur-xl md:flex">
+      <Link href="/" className="mx-4 mt-4 flex h-14 items-center gap-3 rounded-2xl px-3 text-slate-950" aria-label="출퇴근 생존일지 홈">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-sm shadow-blue-200">
+          <Siren size={18} strokeWidth={2.2} aria-hidden="true" />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-extrabold tracking-tight">출퇴근 생존일지</span>
+          <span className="block text-[11px] font-medium text-slate-400">오늘도 무사 귀환</span>
+        </span>
+      </Link>
 
-      <nav className="flex-1 py-2 space-y-1.5 flex flex-col items-center w-full">
+      <nav aria-label="주요 메뉴" className="mt-6 flex-1 space-y-1 px-4">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.href;
           const Icon = item.icon;
-
+          const label = LABELS[item.href] ?? item.label;
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              title={item.label}
-              className={`flex items-center justify-center w-10 h-10 rounded-[10px] transition-all ${
-                isActive
-                  ? 'bg-blue-500/10 text-blue-600'
-                  : 'text-neutral-400 hover:bg-black/[0.04] hover:text-neutral-700'
-              }`}
-            >
-              <Icon size={19} strokeWidth={isActive ? 2.5 : 2} />
+            <Link key={item.href} href={item.href} aria-current={isActive ? 'page' : undefined}
+              className={`flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-semibold transition-colors ${isActive ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}>
+              <Icon size={19} strokeWidth={isActive ? 2.4 : 2} aria-hidden="true" />
+              <span>{label}</span>
             </Link>
           );
         })}
       </nav>
 
-      <div className="py-3 border-t border-black/[0.06] w-full flex justify-center">
-        <Link
-          href="/login"
-          title="로그인"
-          className="flex items-center justify-center w-10 h-10 rounded-[10px] text-neutral-400 hover:bg-black/[0.04] hover:text-neutral-700 transition-all"
-        >
-          <LogIn size={19} />
+      <div className="m-4 border-t border-slate-200 pt-3">
+        <Link href="/login" className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900">
+          <LogIn size={19} aria-hidden="true" /><span>로그인</span>
         </Link>
       </div>
     </aside>
