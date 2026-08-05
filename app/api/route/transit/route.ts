@@ -6,6 +6,7 @@ const EARTH_RADIUS_M = 6_371_000;
 const WALK_ROUTE_FACTOR = 1.22;
 const WALKING_SPEED_KMH = 4.5;
 const CONNECTION_GAP_M = 1;
+const MAX_TERMINAL_WALK_M = 1_500;
 
 type Provider = 'tmap' | 'odsay';
 type ProviderErrorCode = 'PROVIDER_AUTH_FAILED' | 'PROVIDER_RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'ROUTE_NOT_FOUND';
@@ -51,6 +52,9 @@ interface OdsaySubPath {
 }
 interface OdsayPath { info?: { mapObj?: string; totalTime?: number; totalWalk?: number; payment?: number; firstStartStation?: string; lastEndStation?: string }; subPath?: OdsaySubPath[] }
 interface Lane { section?: { graphPos?: { x: number | string; y: number | string }[] }[]; graphPos?: { x: number | string; y: number | string }[] }
+
+const INTERCITY_TYPES = [4, 5, 6];
+const LOCAL_TRANSIT_TYPES = [1, 2, 3];
 
 const validPoint = (point: Point) => Number.isFinite(point.lat) && Number.isFinite(point.lng) && Math.abs(point.lat) <= 90 && Math.abs(point.lng) <= 180;
 const compact = (points: Point[]) => points.filter((point, index) => !index || point.lat !== points[index - 1].lat || point.lng !== points[index - 1].lng);
@@ -178,6 +182,10 @@ function connectionSegment(from: Point, to: Point): Segment {
   };
 }
 
+function unavailableConnection() {
+  return new ProviderError('odsay', 'ROUTE_NOT_FOUND', 404, '연결 대중교통 정보 없음');
+}
+
 function connectSegmentPoints(start: Point, end: Point, segments: Segment[]) {
   const connected: Segment[] = [];
   let cursor = start;
@@ -237,6 +245,56 @@ function estimatedWalking(start: Point, end: Point) {
   };
 }
 
+async function pathSegments(path: OdsayPath, key: string): Promise<Segment[]> {
+  const lanes = await odsayLanes(path.info?.mapObj, key);
+  let laneIndex = 0;
+  return (path.subPath || []).map((part) => {
+    const lane = part.trafficType === 3 ? undefined : lanes[laneIndex++];
+    const points = lanePoints(lane);
+    const isBus = [2, 5, 6].includes(part.trafficType);
+    const isRail = [1, 4].includes(part.trafficType);
+    const routeName = part.lane?.map((item) => item.busNo || item.name).find(Boolean) || null;
+    const stationCount = Number.isFinite(Number(part.stationCount))
+      ? Number(part.stationCount)
+      : Array.isArray(part.passStopList?.stationList) ? Math.max(0, part.passStopList.stationList.length - 1) : null;
+    const label = isBus
+      ? `${part.trafficType === 5 ? '시외버스' : part.trafficType === 6 ? '고속버스' : '버스'}${routeName ? ` ${routeName}` : ''}`
+      : isRail ? (routeName || (part.trafficType === 4 ? '기차' : '지하철')) : '도보';
+    return {
+      trafficType: isBus ? 2 : isRail ? 1 : 3,
+      providerTrafficType: part.trafficType,
+      label,
+      startName: part.startName || null,
+      endName: part.endName || null,
+      routeName,
+      stationCount,
+      transferIndex: null,
+      way: part.way == null ? null : String(part.way),
+      door: part.door == null ? null : String(part.door),
+      distance: metric(part.distance),
+      sectionTime: metric(part.sectionTime),
+      points: anchoredLanePoints(part, points),
+    };
+  });
+}
+
+async function localConnection(start: Point, end: Point, key: string): Promise<Segment[]> {
+  if (distance(start, end) <= CONNECTION_GAP_M) return [];
+  try {
+    const data = await odsaySearch(start, end, key, 0);
+    const candidates = (data?.result?.path || []) as OdsayPath[];
+    const local = candidates
+      .filter((candidate) => candidate.subPath?.some((part) => [1, 2].includes(part.trafficType)))
+      .filter((candidate) => candidate.subPath?.every((part) => LOCAL_TRANSIT_TYPES.includes(part.trafficType)))
+      .sort((a, b) => metric(a.info?.totalTime) - metric(b.info?.totalTime))[0];
+    if (local) return pathSegments(local, key);
+  } catch (error) {
+    if (error instanceof ProviderError && error.code !== 'ROUTE_NOT_FOUND') throw error;
+  }
+  if (distance(start, end) <= MAX_TERMINAL_WALK_M) return [connectionSegment(start, end)];
+  throw unavailableConnection();
+}
+
 export async function GET(req: NextRequest) {
   const mode = req.nextUrl.searchParams.get('mode') === 'walk' ? 'walk' : 'transit';
   const start = { lng: Number(req.nextUrl.searchParams.get('sx')), lat: Number(req.nextUrl.searchParams.get('sy')) };
@@ -271,40 +329,29 @@ export async function GET(req: NextRequest) {
       [0];
     if (!path?.subPath?.length) throw new ProviderError('odsay', 'ROUTE_NOT_FOUND', 404, '버스 또는 지하철 구간이 포함된 대중교통 경로를 찾지 못했습니다.');
 
-    const lanes = await odsayLanes(path.info?.mapObj, odsayKey!);
-    let laneIndex = 0;
-    let transitIndex = 0;
-    let segments: Segment[] = path.subPath.map((part) => {
-      const lane = part.trafficType === 3 ? undefined : lanes[laneIndex++];
-      const points = lanePoints(lane);
-      const isBus = [2, 5, 6].includes(part.trafficType);
-      const isRail = [1, 4].includes(part.trafficType);
-      const routeName = part.lane?.map((item) => item.busNo || item.name).find(Boolean) || null;
-      const stationCount = Number.isFinite(Number(part.stationCount))
-        ? Number(part.stationCount)
-        : Array.isArray(part.passStopList?.stationList) ? Math.max(0, part.passStopList.stationList.length - 1) : null;
-      const label = isBus
-        ? `${part.trafficType === 5 ? '시외버스' : part.trafficType === 6 ? '고속버스' : '버스'}${routeName ? ` ${routeName}` : ''}`
-        : isRail ? (routeName || (part.trafficType === 4 ? '기차' : '지하철')) : '도보';
-      return {
-        trafficType: isBus ? 2 : isRail ? 1 : 3,
-        providerTrafficType: part.trafficType,
-        label,
-        startName: part.startName || null,
-        endName: part.endName || null,
-        routeName,
-        stationCount,
-        transferIndex: isBus || isRail ? transitIndex++ : null,
-        way: part.way == null ? null : String(part.way),
-        door: part.door == null ? null : String(part.door),
-        distance: metric(part.distance),
-        sectionTime: metric(part.sectionTime),
-        // Lane geometry can omit the exact station/terminal coordinates. Keep the
-        // ODSAY endpoints so intercity legs remain anchored even when lane data is sparse.
-        points: anchoredLanePoints(part, points),
-      };
-    });
+    let segments: Segment[];
+    const firstIntercity = path.subPath.findIndex((part) => INTERCITY_TYPES.includes(part.trafficType));
+    const lastIntercity = path.subPath.findLastIndex((part) => INTERCITY_TYPES.includes(part.trafficType));
+    if (firstIntercity >= 0 && lastIntercity >= firstIntercity) {
+      const firstEndpoints = endpoints(path.subPath[firstIntercity]);
+      const lastEndpoints = endpoints(path.subPath[lastIntercity]);
+      if (firstEndpoints.length < 2 || lastEndpoints.length < 2) throw unavailableConnection();
+      const departureTerminal = firstEndpoints[0];
+      const arrivalTerminal = lastEndpoints[1];
+      const [access, main, egress] = await Promise.all([
+        localConnection(start, departureTerminal, odsayKey!),
+        pathSegments(path, odsayKey!).then((all) => all.slice(firstIntercity, lastIntercity + 1)),
+        localConnection(arrivalTerminal, end, odsayKey!),
+      ]);
+      segments = [...access, ...main, ...egress];
+    } else {
+      segments = await pathSegments(path, odsayKey!);
+    }
     segments = connectSegmentPoints(start, end, fillMissingSegmentPoints(start, end, segments));
+    let transitIndex = 0;
+    segments.forEach((segment) => {
+      if (segment.trafficType !== 3) segment.transferIndex = transitIndex++;
+    });
     segments.forEach((segment, index) => {
       if (segment.trafficType !== 3) {
         const vehicle = segment.routeName || (segment.providerTrafficType === 4 ? '기차' : segment.providerTrafficType === 5 ? '시외버스' : segment.providerTrafficType === 6 ? '고속버스' : segment.trafficType === 1 ? '지하철' : '버스');

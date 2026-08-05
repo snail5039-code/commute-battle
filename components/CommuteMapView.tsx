@@ -13,7 +13,9 @@ type StartBasis = 'current' | 'saved';
 type LocationStatus = 'locating' | 'tracking' | 'fallback' | 'unavailable';
 interface RouteSegment {
   trafficType: number;
+  providerTrafficType?: number | null;
   label: string;
+  instruction?: string | null;
   distance: number;
   sectionTime: number;
   points: LatLng[];
@@ -22,6 +24,8 @@ interface RouteSegment {
   laneName?: string | null;
   congestion?: string | number | null;
   transfer?: boolean;
+  geometrySource?: string | null;
+  estimatedGeometry?: boolean;
 }
 interface RouteResponse {
   summary: { totalTime: number; totalDistance: number; totalWalk: number; payment: number; firstStartStation: string | null; lastEndStation: string | null };
@@ -38,6 +42,7 @@ const ROUTE_REFRESH_INTERVAL_MS = 30000;
 const CURRENT_LOCATION_LEVEL = 3;
 const SEGMENT_COLORS: Record<number, string> = { 1: '#10b981', 2: '#2563eb', 3: '#64748b' };
 const CONNECTION_GAP_M = 1;
+const LONG_WALK_WARNING_M = 1000;
 
 function formatElapsed(start?: string) {
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(start ?? Date.now()).getTime()) / 1000));
@@ -110,6 +115,33 @@ function pin(label: string) {
   marker.style.cssText = 'display:grid;place-items:center;width:25px;height:25px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#ef4444;color:white;border:2px solid white;font-size:10px';
   element.append(text, marker);
   return element;
+}
+
+function unavailableGeometryMarker(label: string) {
+  const element = document.createElement('div');
+  element.setAttribute('role', 'img');
+  element.setAttribute('aria-label', `${label} 상세 경로 미제공`);
+  element.style.cssText = 'white-space:nowrap;padding:3px 7px;border-radius:999px;background:#fff7ed;color:#9a3412;font:700 10px system-ui;border:1px solid #fdba74;box-shadow:0 2px 6px #0f172a33';
+  element.textContent = '상세 경로 미제공';
+  return element;
+}
+
+function transitStage(segment: RouteSegment) {
+  if (segment.providerTrafficType === 5) return '시외버스';
+  if (segment.providerTrafficType === 6) return '고속버스';
+  if (segment.trafficType === 2) return '시내버스';
+  if (segment.providerTrafficType === 4) return '기차';
+  return '지하철';
+}
+
+function isRoadReference(segment: RouteSegment) {
+  return /tmap.*(?:road|vehicle)|(?:road|vehicle).*tmap/i.test(segment.geometrySource || '');
+}
+
+function hasActualTransitGeometry(segment: RouteSegment) {
+  if (segment.points.length < 3 || segment.estimatedGeometry) return false;
+  if (/endpoint|estimate|missing|none/i.test(segment.geometrySource || '')) return false;
+  return !isRoadReference(segment);
 }
 
 export default function CommuteMapView({ user, activeRecord, onArrive, onClose }: CommuteMapViewProps) {
@@ -203,25 +235,43 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
     [start, end].forEach((point) => bounds.extend(new window.kakao.maps.LatLng(point.lat, point.lng)));
     const drawableSegments = data.segments.filter((segment) => segment.points.length >= 2);
     const sourceSegments: RouteSegment[] = drawableSegments.length ? drawableSegments : [{ trafficType: 3, label: '경로', distance: data.summary.totalDistance, sectionTime: data.summary.totalTime, points: data.polyline }];
-    // Keep rendering continuous for cached/older API responses too. A missing edge
-    // is displayed with the same dashed walking semantics as server-side connectors.
+    if (selectedMode === 'transit') {
+      sourceSegments.forEach((segment) => {
+        if (segment.trafficType === 3 || hasActualTransitGeometry(segment) || isRoadReference(segment)) return;
+        [segment.points[0], segment.points.at(-1)].filter((point): point is LatLng => Boolean(point)).forEach((point) => {
+          const marker = new window.kakao.maps.CustomOverlay({
+            position: new window.kakao.maps.LatLng(point.lat, point.lng),
+            content: unavailableGeometryMarker(segment.label),
+            yAnchor: 1.4,
+            zIndex: 18,
+          });
+          marker.setMap(map);
+          routeOverlaysRef.current.push(marker);
+        });
+      });
+    }
+    // Preserve continuous walking-mode rendering for cached/older responses. In
+    // transit mode, synthetic two-point connectors are intentionally not drawn.
     const segments: RouteSegment[] = [];
     let cursor = start;
     sourceSegments.forEach((segment) => {
       const first = segment.points[0];
       if (haversineDistance(cursor, first) > CONNECTION_GAP_M) {
-        segments.push({ trafficType: 3, label: '도보 연결', distance: haversineDistance(cursor, first), sectionTime: 0, points: [cursor, first] });
+        segments.push({ trafficType: 3, label: '도보 연결', distance: haversineDistance(cursor, first), sectionTime: 0, points: [cursor, first], geometrySource: 'endpoint-connector', estimatedGeometry: true });
       }
       segments.push(segment);
       cursor = segment.points.at(-1)!;
     });
     if (haversineDistance(cursor, end) > CONNECTION_GAP_M) {
-      segments.push({ trafficType: 3, label: '도보 연결', distance: haversineDistance(cursor, end), sectionTime: 0, points: [cursor, end] });
+      segments.push({ trafficType: 3, label: '도보 연결', distance: haversineDistance(cursor, end), sectionTime: 0, points: [cursor, end], geometrySource: 'endpoint-connector', estimatedGeometry: true });
     }
     segments.forEach((segment) => {
+      const roadReference = selectedMode === 'transit' && isRoadReference(segment);
+      if (selectedMode === 'transit' && segment.trafficType !== 3 && !hasActualTransitGeometry(segment) && !roadReference) return;
+      if (selectedMode === 'transit' && segment.trafficType === 3 && segment.points.length === 2 && (segment.estimatedGeometry || segment.label === '도보 연결')) return;
       const path = segment.points.map((point) => { const value = new window.kakao.maps.LatLng(point.lat, point.lng); bounds.extend(value); return value; });
-      const color = selectedMode === 'walk' ? '#334155' : (SEGMENT_COLORS[segment.trafficType] ?? '#64748b');
-      const line = new window.kakao.maps.Polyline({ path, strokeWeight: segment.trafficType === 3 ? 4 : 7, strokeColor: color, strokeOpacity: 0.9, strokeStyle: data.estimated || segment.trafficType === 3 ? 'shortdash' : 'solid' });
+      const color = selectedMode === 'walk' ? '#334155' : roadReference ? '#f97316' : (SEGMENT_COLORS[segment.trafficType] ?? '#64748b');
+      const line = new window.kakao.maps.Polyline({ path, strokeWeight: roadReference ? 5 : segment.trafficType === 3 ? 4 : 7, strokeColor: color, strokeOpacity: roadReference ? 0.75 : 0.9, strokeStyle: roadReference || data.estimated || segment.trafficType === 3 ? 'shortdash' : 'solid' });
       line.setMap(map);
       routeOverlaysRef.current.push(line);
     });
@@ -391,6 +441,9 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
     setRoutePoints({ start: nextStart, end: endRef.current });
   };
 
+  const hasUnavailableTransitGeometry = mode === 'transit' && Boolean(route?.segments.some((segment) => segment.trafficType !== 3 && !hasActualTransitGeometry(segment) && !isRoadReference(segment)));
+  const hasRoadReference = mode === 'transit' && Boolean(route?.segments.some(isRoadReference));
+
   const panel = (
     <aside className="flex max-h-[46vh] flex-col bg-white p-4 shadow-[0_-8px_30px_rgba(15,23,42,0.12)] md:h-full md:max-h-none md:w-[360px] md:shrink-0 md:border-l md:border-neutral-200 md:shadow-none">
       <div className="mb-3 flex w-fit rounded-full bg-neutral-100 p-1">
@@ -404,6 +457,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
         <p className="flex items-start gap-2"><MapPin className="text-red-500" size={15} /><span><strong className="font-semibold text-neutral-700">도착지</strong> · {destinationAddress}</span></p>
       </div>
       {route?.estimated && !loading && <div className="mb-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800"><strong className="block">참고용 직선 안내</strong>실제 보행 경로가 아닌 직선거리 기준 예상 안내입니다.</div>}
+      {route && !loading && (hasUnavailableTransitGeometry || hasRoadReference) && <div className="mb-3 space-y-1.5 rounded-xl border border-orange-200 bg-orange-50 p-3 text-xs text-orange-900" aria-label="지도 경로 표시 안내">{hasUnavailableTransitGeometry && <p><strong>상세 경로 미제공</strong> · 좌표가 없는 대중교통 구간은 승·하차 지점만 표시합니다.</p>}{hasRoadReference && <p className="flex items-center gap-2"><span aria-hidden="true" className="inline-block w-8 border-t-[3px] border-dashed border-orange-500" /><span><strong>도로 기반 참고선</strong> · TMAP 차량 도로 geometry</span></p>}</div>}
       {loading && locationStatus !== 'locating' && <div className="flex items-center gap-2 rounded-xl bg-neutral-50 p-3 text-sm text-neutral-500"><Navigation className="animate-pulse" size={16} />경로를 찾고 있어요</div>}
       {error && !loading && <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"><div className="flex gap-2"><AlertCircle className="mt-0.5 shrink-0" size={16} /><div><strong className="block text-xs">이 경로를 표시할 수 없어요</strong><span>{error}</span></div></div><button onClick={() => changeMode(mode === 'walk' ? 'transit' : 'walk')} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold shadow-sm">{mode === 'walk' ? '대중교통 대안 보기' : '도보 대안 보기'}</button></div>}
       {route && !loading && <div className="min-h-0 flex-1 overflow-y-auto pr-1"><div className="flex items-end justify-between border-b border-neutral-100 pb-4"><div><p className="text-xs text-neutral-500">예상 소요 시간</p><strong className="text-2xl text-neutral-900">{formatMinutes(route.summary.totalTime)}</strong></div><span className="text-sm text-neutral-500">{formatDistance(route.summary.totalDistance)}</span></div><ol className="mt-4" aria-label="상세 이동 경로">{route.segments.map((segment, index) => {
@@ -411,12 +465,13 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
         const startsAt = new Date(routeDepartureAt + elapsed * 60000);
         const endsAt = new Date(startsAt.getTime() + segment.sectionTime * 60000);
         const isWalk = segment.trafficType === 3;
+        const stage = isWalk ? null : transitStage(segment);
         const isFirstTransit = !isWalk && !route.segments.slice(0, index).some((item) => item.trafficType !== 3);
         const isLastTransit = !isWalk && !route.segments.slice(index + 1).some((item) => item.trafficType !== 3);
         const startName = segment.startName || (isFirstTransit ? route.summary.firstStartStation : null);
         const endName = segment.endName || (isLastTransit ? route.summary.lastEndStation : null);
         const isTransfer = segment.transfer || (index > 0 && !isWalk && route.segments[index - 1].trafficType !== 3);
-        return <li key={`${segment.label}-${index}`} className="relative flex gap-3 pb-5 last:pb-1">{index < route.segments.length - 1 && <span aria-hidden="true" className="absolute left-[15px] top-8 h-[calc(100%-1rem)] w-px bg-neutral-200" />}<span className={`relative z-10 grid size-8 shrink-0 place-items-center rounded-full ring-4 ring-white ${segment.trafficType === 1 ? 'bg-emerald-100 text-emerald-700' : segment.trafficType === 2 ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'}`}>{segment.trafficType === 1 ? <TrainFront size={15} /> : segment.trafficType === 2 ? <Bus size={15} /> : <Footprints size={15} />}</span><div className="min-w-0 flex-1 rounded-xl border border-neutral-100 bg-neutral-50 p-3"><div className="flex items-start justify-between gap-2"><div><p className="text-sm font-semibold text-neutral-800">{segment.laneName || segment.label}</p>{isTransfer && <p className="mt-0.5 text-[11px] font-semibold text-blue-600">환승 구간</p>}</div><span className="shrink-0 text-[11px] text-neutral-400">{formatClock(startsAt)}–{formatClock(endsAt)}</span></div>{isWalk ? <p className="mt-1 text-xs text-neutral-600">도보 {formatDistance(segment.distance)} · {formatSteps(segment.distance)}</p> : <div className="mt-2 space-y-1 text-xs text-neutral-600"><p><strong className="font-semibold text-neutral-700">승차</strong> {startName || '승차 지점 확인 필요'}</p><p><strong className="font-semibold text-neutral-700">하차</strong> {endName || '하차 지점 확인 필요'}</p></div>}<p className="mt-1 flex items-center gap-1 text-[11px] text-neutral-500"><Clock3 size={11} />예상 {formatMinutes(segment.sectionTime)} · {formatDistance(segment.distance)}</p>{segment.congestion !== undefined && segment.congestion !== null && String(segment.congestion).trim() && <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-800">제공된 혼잡 정보: {String(segment.congestion)}</p>}</div></li>;
+        return <li key={`${segment.label}-${index}`} className="relative flex gap-3 pb-5 last:pb-1">{index < route.segments.length - 1 && <span aria-hidden="true" className="absolute left-[15px] top-8 h-[calc(100%-1rem)] w-px bg-neutral-200" />}<span className={`relative z-10 grid size-8 shrink-0 place-items-center rounded-full ring-4 ring-white ${segment.trafficType === 1 ? 'bg-emerald-100 text-emerald-700' : segment.trafficType === 2 ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'}`}>{segment.trafficType === 1 ? <TrainFront size={15} /> : segment.trafficType === 2 ? <Bus size={15} /> : <Footprints size={15} />}</span><div className="min-w-0 flex-1 rounded-xl border border-neutral-100 bg-neutral-50 p-3"><div className="flex items-start justify-between gap-2"><div>{stage && <p className="mb-0.5 text-[10px] font-bold tracking-wide text-blue-600">{stage}</p>}<p className="text-sm font-semibold text-neutral-800">{segment.laneName || segment.label}</p>{isTransfer && <p className="mt-0.5 text-[11px] font-semibold text-blue-600">환승 구간</p>}</div><span className="shrink-0 text-[11px] text-neutral-400">{formatClock(startsAt)}–{formatClock(endsAt)}</span></div>{isWalk ? <><p className="mt-1 text-xs text-neutral-600">도보 {formatDistance(segment.distance)} · {formatSteps(segment.distance)}</p>{segment.distance >= LONG_WALK_WARNING_M && <p className="mt-2 flex gap-1.5 rounded-md bg-amber-100 px-2 py-1.5 text-[11px] font-semibold text-amber-900"><AlertCircle className="mt-0.5 shrink-0" size={12} />장거리 도보 구간입니다. 이동 가능 여부와 대체 교통편을 확인하세요.</p>}</> : <div className="mt-2 space-y-1 text-xs text-neutral-600"><p><strong className="font-semibold text-neutral-700">승차</strong> {startName || '승차 지점 확인 필요'}</p><p><strong className="font-semibold text-neutral-700">하차</strong> {endName || '하차 지점 확인 필요'}</p>{segment.instruction && <p className="pt-1 text-[11px] text-neutral-500">{segment.instruction}</p>}{!hasActualTransitGeometry(segment) && !isRoadReference(segment) && <p className="pt-1 text-[11px] font-semibold text-orange-700">지도 상세 경로 미제공</p>}</div>}<p className="mt-1 flex items-center gap-1 text-[11px] text-neutral-500"><Clock3 size={11} />예상 {formatMinutes(segment.sectionTime)} · {formatDistance(segment.distance)}</p>{segment.congestion !== undefined && segment.congestion !== null && String(segment.congestion).trim() && <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-800">제공된 혼잡 정보: {String(segment.congestion)}</p>}</div></li>;
       })}</ol>{route.summary.payment > 0 && <p className="mt-3 text-right text-xs text-neutral-500">예상 요금 {route.summary.payment.toLocaleString()}원</p>}<section className="mt-4 rounded-2xl border border-violet-200 bg-violet-50/70" aria-labelledby="route-comment-title"><button type="button" onClick={() => setCommentOpen((open) => !open)} aria-expanded={commentOpen} aria-controls="route-comment-content" className="flex w-full items-center gap-2 p-3 text-left"><span className="grid size-8 place-items-center rounded-full bg-violet-100 text-violet-700"><Sparkles size={16} /></span><span id="route-comment-title" className="flex-1 text-sm font-bold text-violet-950">AI 경로 코멘트</span>{commentOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>{commentOpen && <div id="route-comment-content" className="space-y-3 border-t border-violet-100 p-3" aria-live="polite">{commentLoading && <p className="flex items-center gap-2 text-xs text-violet-700"><Sparkles className="animate-pulse" size={14} />실제 경로를 분석하고 있어요.</p>}{commentError && <p className="flex gap-2 text-xs text-amber-800"><AlertCircle className="shrink-0" size={14} />{commentError}</p>}{routeComment && !commentLoading && <><div><p className="mb-1 text-[11px] font-bold text-violet-800">핵심 요약</p><p className="text-xs leading-5 text-neutral-700">{routeComment.summary}</p></div><div><p className="mb-1 text-[11px] font-bold text-violet-800">주의 구간</p><p className="text-xs leading-5 text-neutral-700">{routeComment.caution}</p></div><div><p className="mb-1 text-[11px] font-bold text-violet-800">지금 할 일</p><ul className="space-y-1 text-xs leading-5 text-neutral-700">{routeComment.actions.map((action, index) => <li key={`${action}-${index}`} className="flex gap-2"><span aria-hidden="true" className="font-bold text-violet-500">{index + 1}.</span><span>{action}</span></li>)}</ul></div><p className="text-[10px] text-neutral-400">{routeComment.source === 'ai' ? 'AI가 경로 데이터와 현재 시각을 바탕으로 작성했어요.' : '경로 데이터 기반 자동 분석이에요.'}</p></>}</div>}</section></div>}
     </aside>
   );
