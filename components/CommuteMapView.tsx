@@ -31,6 +31,8 @@ interface RouteSummary {
 interface RouteSegment {
   trafficType: number;
   label: string;
+  distance: number;
+  sectionTime: number;
   points: LatLng[];
 }
 
@@ -122,8 +124,6 @@ export default function CommuteMapView({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<kakao.maps.Map | null>(null);
   const myMarkerRef = useRef<kakao.maps.CustomOverlay | null>(null);
-  const trailLineRef = useRef<kakao.maps.Polyline | null>(null);
-  const trailRef = useRef<kakao.maps.LatLng[]>([]);
   const watchIdRef = useRef<number | null>(null);
 
   const routePolylineRef = useRef<LatLng[]>([]);
@@ -141,6 +141,7 @@ export default function CommuteMapView({
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [routeSummary, setRouteSummary] = useState<RouteSummary | null>(null);
+  const [routeSegments, setRouteSegments] = useState<RouteSegment[] | null>(null);
   const [offRoute, setOffRoute] = useState(false);
   const [petMessage, setPetMessage] = useState<string | null>(null);
   const [manualMode, setManualMode] = useState(false);
@@ -199,8 +200,6 @@ export default function CommuteMapView({
             mapRef.current.panTo(point);
           }
 
-          trailRef.current = [...trailRef.current, point];
-          trailLineRef.current?.setPath(trailRef.current);
           setReady(true);
 
           const routePolyline = routePolylineRef.current;
@@ -280,6 +279,7 @@ export default function CommuteMapView({
               0
             );
             setRouteSummary(route.summary);
+            setRouteSegments(route.segments);
             routeTotalTimeRef.current = route.summary.totalTime;
             if (route.summary.totalTime) {
               setPetMessage(
@@ -318,14 +318,6 @@ export default function CommuteMapView({
         } else if (startCoord) {
           map.setCenter(new kakao.maps.LatLng(startCoord.lat, startCoord.lng));
         }
-
-        trailLineRef.current = new kakao.maps.Polyline({
-          path: [],
-          strokeWeight: 5,
-          strokeColor: '#1d4ed8',
-          strokeOpacity: 0.9,
-        });
-        trailLineRef.current.setMap(map);
 
         keyHandler = (e: KeyboardEvent) => {
           if (routePolylineRef.current.length < 2) return;
@@ -374,6 +366,7 @@ export default function CommuteMapView({
         watchIdRef.current = navigator.geolocation.watchPosition(
           (pos) => {
             if (cancelled || manualModeRef.current) return;
+            if (pos.coords.accuracy > 500) return; // 오차가 너무 큰(예: 데스크톱 와이파이 측위) 값은 무시
             setGpsError(null);
             applyPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
           },
@@ -445,6 +438,29 @@ export default function CommuteMapView({
           <X size={18} />
         </button>
       </div>
+
+      {routeSegments && routeSegments.length > 0 && (
+        <div className="flex items-center gap-1.5 px-4 py-2 overflow-x-auto border-b border-neutral-100 whitespace-nowrap">
+          {routeSegments.map((segment, i) => (
+            <div key={i} className="flex items-center gap-1.5 shrink-0">
+              <span
+                className={`px-2 py-1 rounded-full text-[11px] font-semibold ${
+                  segment.trafficType === 1
+                    ? 'bg-emerald-50 text-emerald-600'
+                    : segment.trafficType === 2
+                      ? 'bg-blue-50 text-blue-600'
+                      : 'bg-neutral-100 text-neutral-500'
+                }`}
+              >
+                {segment.label} · {segment.sectionTime}분
+              </span>
+              {i < routeSegments.length - 1 && (
+                <span className="text-neutral-300 text-[11px]">→</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="relative flex-1">
         <div ref={containerRef} className="absolute inset-0" />
