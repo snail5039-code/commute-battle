@@ -1,143 +1,102 @@
-# 출퇴근전쟁봇 개발 가이드
+# 출퇴근전쟁봇 개발 현황 & TODO
 
-## 1. 필수 설정
+> 마지막 작업일: 2026-08-05. 다음 세션 시작할 때 이 파일부터 읽기.
 
-### Supabase 프로젝트 생성
-1. [supabase.com](https://supabase.com)에서 로그인 / 회원가입
-2. "New Project" → 프로젝트 이름 입력 (예: commute-battle)
-3. 생성되면 URL과 API Key 복사
+## 배포 정보
+- **GitHub**: https://github.com/snail5039-code/commute-battle (public)
+- **Vercel**: https://commute-battle.vercel.app (자동 배포됨 — GitHub master에 push하면 Vercel이 알아서 재배포. **직접 `vercel --prod` 실행하지 말 것**, 사용자가 명시적으로 지시한 규칙)
+- Supabase 프로젝트: `commute-battle` (조직 snail5039-aiagent)
 
-### 환경변수 설정
-`.env.local` 파일에 다음 값들 입력:
-
-```
-NEXT_PUBLIC_SUPABASE_URL=YOUR_PROJECT_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_ANON_KEY
-NEXT_PUBLIC_GEMINI_API_KEY=YOUR_GEMINI_KEY
-```
-
-**키 찾는 법:**
-- Supabase: Settings → API
-- Gemini: [Google AI Studio](https://aistudio.google.com)
-
----
-
-## 2. Supabase 테이블 생성
-
-Supabase Dashboard → SQL Editor에서 아래 스크립트 실행:
-
-```sql
--- users 테이블
-CREATE TABLE users (
-  id TEXT PRIMARY KEY,
-  home_address TEXT,
-  work_address TEXT,
-  character_level INT DEFAULT 1,
-  character_exp INT DEFAULT 0,
-  character_stage TEXT DEFAULT 'alg',
-  total_commute_starts INT DEFAULT 0,
-  total_commute_arrivals INT DEFAULT 0,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
--- commute_records 테이블
-CREATE TABLE commute_records (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
-  date DATE NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('commute', 'early_leave', 'vacation', 'sick', 'absence')),
-  commute_subtype TEXT,
-  start_time TIMESTAMP,
-  end_time TIMESTAMP,
-  duration_minutes INT,
-  is_on_time BOOLEAN DEFAULT FALSE,
-  weather_condition TEXT,
-  exp_gained INT DEFAULT 0,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE(user_id, date, type)
-);
-
--- badges 테이블
-CREATE TABLE badges (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
-  badge_name TEXT NOT NULL,
-  progress_current INT DEFAULT 0,
-  progress_total INT,
-  is_completed BOOLEAN DEFAULT FALSE,
-  completed_at TIMESTAMP,
-  created_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE(user_id, badge_name)
-);
-
--- 인덱스
-CREATE INDEX idx_commute_records_user_date ON commute_records(user_id, date);
-CREATE INDEX idx_badges_user ON badges(user_id);
-```
-
----
-
-## 3. 로컬 실행
-
+## 로컬 실행
 ```bash
 cd commute-battle
 npm install
 npm run dev
 ```
-
-http://localhost:3000 에서 접근
-
----
-
-## 4. 주요 기능 체크리스트
-
-### MVP (1차) — 완료
-- [x] 주소 초기 설정 모달
-- [x] 대시보드 (캐릭터, EXP, 달력)
-- [x] 출근/퇴근 버튼 → Gemini 경로 안내
-- [x] 도착 기록 (EXP 획득, 레벨업, 진화)
-- [x] 조퇴/휴가 기록
-- [x] 배지 페이지 (진행도 실시간 계산)
-- [x] 통계 페이지 (월간 리포트)
-- [x] 설정 페이지 (주소 수정, 로그아웃)
-- [x] 기본 로그인 페이지 (Supabase Auth, 선택사항)
-- [x] 사이드바 레이아웃
-
-### Phase 2 (시간 있을 때)
-- [ ] 정시 판정 로직 (현재는 항상 false — 최근 10회 평균 비교 필요)
-- [ ] 배지 진행도를 badges 테이블에 실제로 저장 (현재는 매번 클라이언트에서 계산)
-- [ ] 기록 수정/삭제 UI
-- [ ] 캐릭터가 지도에서 움직이는 애니메이션
-
-### Phase 3 (나중에)
-- [ ] GPS 자동감지
-- [ ] 실시간 지연 감지
-- [ ] 캐릭터 선톡 (백그라운드 스케줄)
-- [ ] 날씨 API 통합 (현재는 하드코딩된 맑음/0mm)
-
-### ⚠️ 배포 전 확인 필요
-- [ ] Supabase RLS(Row Level Security)가 3개 테이블 모두 비활성화 상태 — 지금은 익명 anon key로 아무나 모든 사용자 데이터를 읽고 쓸 수 있음. 로그인 기능을 실제로 쓰거나 배포하기 전에 RLS 정책을 추가해야 함
+http://localhost:3000
 
 ---
 
-## 5. API 라우트
+## ✅ 완료된 것 (지금까지 만든 전체 기능)
 
-| 엔드포인트 | 메서드 | 설명 |
-|---|---|---|
-| `/api/user/init` | POST | 첫 사용자 설정 |
-| `/api/commute/start` | POST | 출발 기록 |
-| `/api/commute/arrive` | POST | 도착 기록 |
+### 기본 MVP
+- 주소 초기 설정 모달, 로그인 페이지(Supabase Auth, 선택)
+- 대시보드: 3열 위젯 그리드 (오늘의 근무 / 캐릭터 / 이번달 통계 / 달력 / 배지)
+- 출근/퇴근 → Gemini가 경로·난이도·문구 생성 (`lib/gemini.ts: generateRouteGuide`)
+- 도착 기록 → EXP 획득, 레벨업, 캐릭터 진화 (알→새싹전사→출근용사→베테랑)
+- 조퇴/휴가 기록, 배지 8종 진행도 실시간 계산, 월간 통계 페이지
+- **정시 판정 로직 실제 구현됨** (`lib/onTime.ts`) — 더 이상 항상 false 아님
+
+### 디자인
+- 이모지 대부분 제거하고 Lucide 아이콘으로 교체 (Mac/SaaS 스타일)
+- 데스크톱: 아이콘 전용 슬림 사이드바. 모바일: 하단 탭바 + 스와이프 내비게이션
+- 파란색 액센트, `.card` 공통 클래스 기반 위젯 카드 디자인
+
+### AI 캐릭터 펫 (핵심 기능)
+- 화면 전체를 랜덤으로 떠다니는 캐릭터 (`components/PetWidget.tsx`)
+- 레벨업 시 진화 확인 멘트 (같은 단계는 항상 같은 모습)
+- 출퇴근 상태를 실시간 체크해서 AI가 먼저 말 거는 선톡:
+  - 정시 출근/칼퇴 → **칭찬** (EXP 보너스 +15)
+  - 지각/야근 → **1→2→3단계로 점점 세지는 잔소리** (매번 다른 멘트)
+  - 저녁 인사, 시간대별(아침/낮/저녁/밤) 랜덤 잡담
+- 좌클릭 → 매번 Gemini가 새로 생성하는 반응 멘트 (고정 문구 아님)
+- 우클릭 컨텍스트 메뉴 → 멈추기/움직이기, 놀아주기(하트 이펙트 + 통통 튀는 모션)
+- 드래그로 원하는 위치에 옮기기 가능
+- 설정 페이지: "조용히 모드"(선톡 끄기), "브라우저 알림 켜기"(OS 알림 동시 표시)
+
+### 버그 픽스 히스토리 (재발 방지 참고)
+- 펫이 떠다니다 멈추는 문제 → `message`/`wandering`이 바뀔 때마다 `useEffect` 전체가 재생성되던 게 원인. ref 기반으로 인터벌을 한 번만 생성하도록 수정
+- 우클릭이 일반 클릭과 겹쳐서 동시 발동 → `pointerdown`/`up`이 우클릭에도 발생한다는 걸 놓침. `e.button === 0` 체크 추가
+- 말풍선 뜨면 펫이 옆으로 밀리는 문제 → **CSS 버그**였음. `flex flex-col items-center`에서 말풍선(넓음)이 컨테이너 폭을 넓혀서 그 안의 버튼이 재정렬되던 것. wrapper를 48px 고정 크기로 만들고 말풍선은 `absolute bottom-full`로 얹는 구조로 해결
 
 ---
 
-## 6. 주의사항
+## 🔲 다음 세션에 할 일
 
-- 로컬 개발 중 localStorage에 userId 저장 (임시 방식)
-- 실제 배포 시 Supabase Auth 추가 필요
-- Gemini API는 요청 제한 있으니 무료 티어로 테스트
+### 최우선 확인
+- [ ] **직접 브라우저에서 펫 기능 전체 재검증** — 이번 세션 마지막 수정(CSS 레이아웃 픽스)이 실제로 잘 되는지 아직 라이브로 확인 못함. 브라우저 도구 자체가 이 세션에서 화면에 안 그려지는 상태(`document.hidden`)여서 스크린샷/클릭 시뮬레이션이 안 됐음
+- [ ] 클릭 반응, 드래그, 우클릭 메뉴, 떠다니기, 놀아주기 모두 실제로 만져보고 이상하면 바로 보고
+
+### Phase 2 (기능 다듬기)
+- [ ] 배지 진행도를 `badges` 테이블에 실제로 저장 (현재는 매번 클라이언트에서 records로 재계산만 함, DB 컬럼은 비어있음)
+- [ ] 기록 수정/삭제 UI (잘못 입력한 출퇴근 기록 고치기)
+- [ ] 날씨 API 실제 연동 (지금은 Gemini에 항상 "맑음, 강수량 0mm" 하드코딩해서 넘김)
+
+### Phase 3 (여유 있으면)
+- [ ] GPS 자동감지, 실시간 지연 감지
+- [ ] 진짜 푸시 알림 (탭 닫혀도 동작) — 서비스워커 + VAPID + 서버 크론 필요, 지금 알림은 탭 열려있을 때만 동작
+- [ ] SMS/카톡/전화 알림은 **브라우저 JS로 불가능** (플랫폼 제약, 시간 문제 아님). 하려면 Twilio 같은 유료 API + 전화번호 저장 + 서버 크론 필요 — 사용자와 논의 필요
+
+### ⚠️ 제출 전 반드시 확인
+- [ ] **Supabase RLS가 3개 테이블 모두 비활성화 상태.** 사이트가 이제 public인데 익명 anon key로 누구나 다른 사용자 데이터를 읽고 쓸 수 있음. 데모용이면 괜찮지만 신경 쓰인다면 RLS 정책 추가
+- [ ] `NEXT_PUBLIC_GEMINI_API_KEY`가 클라이언트에 노출됨 (지금 구조상 불가피) — 무료 티어 한도 확인
+- [ ] 다른 기기/시크릿 창에서 전체 플로우 한 번 더 테스트 (제출 요구사항 REQ-04)
+- [ ] 미니프로젝트 제출 문서(`미니프로젝트3_출퇴근전쟁봇.md`) 내용이 최신 기능과 맞는지 갱신 — 아직 초안 상태로 남아있을 가능성 높음
+- [ ] 스크린샷 2장 이상 (AI 기능 동작 장면 필수) 준비
+- [ ] 제출 기한: **8/9 일요일 23:59**
 
 ---
 
-**다음: Supabase 테이블 생성 → 로컬 테스트**
+## 데이터 구조 참고
+
+### 테이블: users / commute_records / badges
+스키마는 `schema.sql` 참고. `commute_records.type`은 `'commute' | 'return' | 'early_leave' | 'vacation' | 'sick' | 'absence'`.
+
+### 주요 파일 위치
+| 기능 | 파일 |
+|---|---|
+| Gemini 프롬프트 전체 | `lib/gemini.ts` |
+| 펫 트리거 판정(지각/칭찬 단계) | `lib/petTriggers.ts` |
+| 정시 판정 | `lib/onTime.ts` |
+| 시간대별 멘트 풀 | `lib/petMessages.ts` |
+| 캐릭터 위젯 UI | `components/PetWidget.tsx` |
+| 대시보드 그리드 | `components/DashBoard.tsx` |
+| OS 알림 | `lib/notifications.ts` |
+
+---
+
+## 작업 규칙 (기억할 것)
+- 커밋 메시지는 한국어
+- **GitHub push까지만** 하고 Vercel은 자동배포에 맡길 것 (수동 `vercel --prod` 금지, 사용자 지시)
+- `npm run build`로 타입체크 + 빌드 확인하고 커밋하는 습관 유지
+- OneDrive 폴더라 `.next` 빌드 캐시가 파일 잠금(EPERM)을 일으킬 수 있음 → 안되면 `rm -rf .next` 후 재시도
