@@ -155,6 +155,7 @@ export default function CommuteMapView({
   const [ready, setReady] = useState(false);
   const [routeSummary, setRouteSummary] = useState<RouteSummary | null>(null);
   const [routeSegments, setRouteSegments] = useState<RouteSegment[] | null>(null);
+  const [estimatedMinutes, setEstimatedMinutes] = useState<number | null>(null);
   const [offRoute, setOffRoute] = useState(false);
   const [petMessage, setPetMessage] = useState<string | null>(null);
   const [manualMode, setManualMode] = useState(false);
@@ -233,6 +234,7 @@ export default function CommuteMapView({
                   1,
                   Math.round(totalTime * (remaining / routeTotalDistanceRef.current))
                 );
+                setEstimatedMinutes(estimatedMinutes);
                 const nextMilestone = MILESTONE_MINUTES.find(
                   (m) => estimatedMinutes <= m && !announcedMinutesRef.current.has(m)
                 );
@@ -294,6 +296,7 @@ export default function CommuteMapView({
             setRouteSummary(route.summary);
             setRouteSegments(route.segments);
             routeTotalTimeRef.current = route.summary.totalTime;
+            setEstimatedMinutes(route.summary.totalTime);
             if ((route.debug?.polylinePointCount ?? route.polyline.length) <= 2) {
               setPetMessage(
                 'ODsay 상세 경로 좌표가 없어 출발지와 도착지만 연결했어요. ODsay loadLane 응답을 확인해야 해요.'
@@ -446,7 +449,7 @@ export default function CommuteMapView({
       </div>
 
       {routeSegments && routeSegments.length > 0 && (
-        <div className="relative z-20 flex items-center gap-1.5 px-4 py-2 overflow-x-auto border-b border-neutral-100 whitespace-nowrap bg-white">
+        <div className="relative z-20 flex md:hidden items-center gap-1.5 px-4 py-2 overflow-x-auto border-b border-neutral-100 whitespace-nowrap bg-white">
           {routeSegments.map((segment, i) => (
             <div key={i} className="flex items-center gap-1.5 shrink-0">
               <span
@@ -468,7 +471,8 @@ export default function CommuteMapView({
         </div>
       )}
 
-      <div className="relative flex-1 overflow-hidden">
+      <div className="relative flex-1 overflow-hidden md:flex">
+        <div className="relative flex-1 min-w-0 h-full">
         <div ref={containerRef} className="absolute inset-0 z-0" />
         {!ready && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/70 text-[13px] text-neutral-400">
@@ -514,6 +518,56 @@ export default function CommuteMapView({
             지도를 클릭하거나 방향키/WASD로 이동해볼 수 있어요
           </p>
         )}
+        </div>
+
+        <aside className="hidden md:flex w-[340px] shrink-0 flex-col border-l border-neutral-100 bg-white overflow-y-auto">
+          <div className="p-5 border-b border-neutral-100">
+            <p className="text-[12px] font-medium text-neutral-400">도착까지 예상</p>
+            <div className="mt-1 flex items-end gap-1">
+              <strong className="text-[34px] leading-none font-bold text-neutral-900 tabular-nums">
+                {estimatedMinutes ?? routeSummary?.totalTime ?? '--'}
+              </strong>
+              <span className="pb-1 text-[14px] font-semibold text-neutral-500">분</span>
+            </div>
+            {routeSummary?.totalWalk != null && (
+              <p className="mt-2 text-[12px] text-neutral-500">
+                총 도보 {Math.max(1, Math.round(routeSummary.totalWalk / 100)) / 10}km
+                {routeSummary.payment ? ` · 교통비 ${routeSummary.payment.toLocaleString()}원` : ''}
+              </p>
+            )}
+          </div>
+
+          <div className="p-5 space-y-1">
+            <p className="mb-3 text-[13px] font-semibold text-neutral-900">이동 경로</p>
+            {routeSegments?.map((segment, index) => (
+              <div key={`${segment.label}-${index}`} className="flex gap-3 py-2">
+                <div className={`mt-1 h-3 w-3 shrink-0 rounded-full ${
+                  segment.trafficType === 1
+                    ? 'bg-emerald-500'
+                    : segment.trafficType === 2
+                      ? 'bg-blue-500'
+                      : 'bg-slate-400'
+                }`} />
+                <div className="min-w-0">
+                  <p className="text-[13px] font-semibold text-neutral-800">{segment.label}</p>
+                  <p className="mt-0.5 text-[12px] text-neutral-500">
+                    {segment.sectionTime}분
+                    {segment.distance > 0 ? ` · ${segment.distance >= 1000 ? `${(segment.distance / 1000).toFixed(1)}km` : `${Math.round(segment.distance)}m`}` : ''}
+                  </p>
+                </div>
+              </div>
+            ))}
+            {!routeSegments && (
+              <p className="py-8 text-center text-[12px] text-neutral-400">경로를 불러오는 중...</p>
+            )}
+          </div>
+
+          {petMessage && (
+            <div className="mx-5 mb-5 mt-auto rounded-[14px] bg-amber-50 p-3 text-[12px] leading-relaxed text-amber-800">
+              {petMessage}
+            </div>
+          )}
+        </aside>
       </div>
 
       <div className="relative z-20 border-t border-neutral-100 bg-white p-4 space-y-3">

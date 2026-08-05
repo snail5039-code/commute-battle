@@ -322,10 +322,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: '출발지/도착지 좌표가 필요합니다.' }, { status: 400 });
   }
 
-  const odsayKey = process.env.ODSAY_API_KEY;
-  const tmapKey = process.env.TMAP_APP_KEY;
+  const odsayKey = process.env.ODSAY_API_KEY || process.env.NEXT_PUBLIC_ODSAY_API_KEY;
+  const tmapKey =
+    process.env.TMAP_APP_KEY ||
+    process.env.TMAP_API_KEY ||
+    process.env.NEXT_PUBLIC_TMAP_APP_KEY;
   if (!odsayKey || !tmapKey) {
-    return NextResponse.json({ error: 'ODsay 또는 TMAP API 키가 설정되지 않았습니다.' }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: 'ODsay 또는 TMAP API 키가 설정되지 않았습니다.',
+        missing: [!odsayKey && 'ODSAY_API_KEY', !tmapKey && 'TMAP_APP_KEY'].filter(Boolean),
+      },
+      { status: 500 }
+    );
   }
 
   try {
