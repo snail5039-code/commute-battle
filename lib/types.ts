@@ -1,0 +1,52 @@
+export interface User {
+  id: string;
+  home_address?: string;
+  work_address?: string;
+  character_level: number;
+  character_exp: number;
+  character_stage: 'alg' | 'seedling' | 'warrior' | 'veteran';
+  total_commute_starts: number;
+  total_commute_arrivals: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CommuteRecord {
+  id: string;
+  user_id: string;
+  date: string;
+  type: 'commute' | 'return' | 'early_leave' | 'vacation' | 'sick' | 'absence';
+  commute_subtype?: 'start' | 'arrival' | 'leave';
+  start_time?: string;
+  end_time?: string;
+  duration_minutes?: number;
+  is_on_time: boolean;
+  weather_condition?: string;
+  exp_gained: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Badge {
+  id: string;
+  user_id: string;
+  badge_name: string;
+  progress_current: number;
+  progress_total: number;
+  is_completed: boolean;
+  completed_at?: string;
+  created_at: string;
+}
+
+export interface RouteGuideResponse {
+  route: string;
+  recommended_departure: string;
+  difficulty: 'peaceful' | 'caution' | 'alert' | 'danger';
+  message: string;
+}
+
+export interface CommuteState {
+  status: 'idle' | 'started' | 'departed' | null;
+  type?: 'commute' | 'return';
+  start_time?: Date;
+}
