@@ -5,6 +5,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { NAV_ITEMS } from '@/lib/nav';
 
 const SWIPE_THRESHOLD = 60;
+const INTERACTIVE_SELECTOR =
+  'map, [data-map-interactive], a, button, input, textarea, select, [contenteditable="true"], [data-no-swipe]';
 
 export default function SwipeNav({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -12,14 +14,26 @@ export default function SwipeNav({ children }: { children: React.ReactNode }) {
   const start = useRef<{ x: number; y: number } | null>(null);
 
   const onTouchStart = (e: React.TouchEvent) => {
-    const target = e.target as HTMLElement;
-    if (target.closest('input, textarea, select, button, [data-no-swipe]')) return;
+    start.current = null;
+    if (e.touches.length !== 1) return;
+
+    const target = e.target;
+    if (target instanceof Element && target.closest(INTERACTIVE_SELECTOR)) return;
+
     const t = e.touches[0];
     start.current = { x: t.clientX, y: t.clientY };
   };
 
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) start.current = null;
+  };
+
   const onTouchEnd = (e: React.TouchEvent) => {
     if (!start.current) return;
+    if (e.touches.length > 0 || e.changedTouches.length !== 1) {
+      start.current = null;
+      return;
+    }
     const t = e.changedTouches[0];
     const deltaX = t.clientX - start.current.x;
     const deltaY = t.clientY - start.current.y;
@@ -42,7 +56,13 @@ export default function SwipeNav({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="min-h-screen touch-pan-y">
+    <div
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={() => { start.current = null; }}
+      className="min-h-screen touch-pan-y"
+    >
       {children}
     </div>
   );
