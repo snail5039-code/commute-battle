@@ -611,7 +611,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   const hasRoadReference = mode === 'transit' && Boolean(route?.segments.some(isRoadReference));
 
   const panel = (
-    <aside className="flex max-h-[46vh] flex-col bg-white p-4 shadow-[0_-8px_30px_rgba(15,23,42,0.12)] md:h-full md:max-h-none md:w-[360px] md:shrink-0 md:border-l md:border-neutral-200 md:shadow-none">
+    <aside className="flex shrink-0 flex-col bg-white p-4 shadow-[0_-8px_30px_rgba(15,23,42,0.12)] md:h-full md:min-h-0 md:w-[360px] md:border-l md:border-neutral-200 md:shadow-none">
       <div className="mb-3 flex w-fit rounded-full bg-neutral-100 p-1">
         {(['walk', 'transit'] as const).map((value) => <button key={value} onClick={() => changeMode(value)} aria-pressed={mode === value} className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold ${mode === value ? 'bg-neutral-900 text-white shadow-sm' : 'text-neutral-500'}`}>{value === 'walk' ? <Footprints size={13} /> : <Bus size={13} />}{value === 'walk' ? '도보' : '대중교통'}</button>)}
       </div>
@@ -651,5 +651,24 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
     </aside>
   );
 
-  return <div className="absolute inset-0 z-10 flex flex-col bg-white"><header className="relative z-20 flex items-center justify-between border-b border-neutral-100 px-4 py-3"><div><p className="text-[13px] font-semibold text-neutral-900">{activeRecord.type === 'commute' ? '출근 이동 중' : '퇴근 이동 중'}</p><p className="text-[11px] text-neutral-400">현재 위치와 경로를 실시간으로 확인하세요</p></div><button onClick={onClose} aria-label="지도 닫기" className="rounded-full p-2 text-neutral-500 hover:bg-neutral-100"><X size={18} /></button></header><div className="flex min-h-0 flex-1 flex-col md:flex-row"><div className="relative min-h-[45vh] flex-1"><div ref={containerRef} data-map-interactive className="absolute inset-0 touch-none" /><div className="absolute left-3 top-3 z-20 rounded-lg bg-white/90 px-2 py-1 text-[10px] text-neutral-500 shadow"><MapPin className="mr-1 inline" size={11} />파랑 현재 · 검정 출발 · 빨강 도착</div><button type="button" onClick={recenter} disabled={!hasCurrentLocation} className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 rounded-full bg-white px-3 py-2 text-xs font-semibold text-neutral-700 shadow-lg disabled:cursor-not-allowed disabled:opacity-50"><Crosshair size={15} />내 위치로</button></div>{panel}</div><footer className="relative z-20 flex items-center gap-4 border-t border-neutral-100 bg-white p-4"><p className="flex-1 text-center font-mono text-[20px] font-semibold tabular-nums">{formatElapsed(activeRecord.start_time)}</p><button onClick={arrive} disabled={arriving} className="w-1/2 rounded-[14px] bg-emerald-500 py-3 text-[14px] font-semibold text-white hover:bg-emerald-600 disabled:opacity-50">{arriving ? '기록 중…' : '도착'}</button></footer></div>;
+  return (
+    <div className="fixed inset-0 z-40 flex h-[100dvh] flex-col overflow-hidden bg-white">
+      <header className="relative z-20 flex shrink-0 items-center justify-between border-b border-neutral-100 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))]">
+        <div><p className="text-[13px] font-semibold text-neutral-900">{activeRecord.type === 'commute' ? '출근 이동 중' : '퇴근 이동 중'}</p><p className="text-[11px] text-neutral-400">현재 위치와 경로를 실시간으로 확인하세요</p></div>
+        <button onClick={onClose} aria-label="지도 닫기" className="rounded-full p-2 text-neutral-500 hover:bg-neutral-100"><X size={18} /></button>
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain md:flex-row md:overflow-hidden">
+        <div className="relative h-[45dvh] min-h-64 shrink-0 md:h-auto md:min-h-0 md:flex-1">
+          <div ref={containerRef} data-map-interactive className="absolute inset-0 touch-none" />
+          <div className="absolute left-3 top-3 z-20 rounded-lg bg-white/90 px-2 py-1 text-[10px] text-neutral-500 shadow"><MapPin className="mr-1 inline" size={11} />파랑 현재 · 검정 출발 · 빨강 도착</div>
+          <button type="button" onClick={recenter} disabled={!hasCurrentLocation} className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 rounded-full bg-white px-3 py-2 text-xs font-semibold text-neutral-700 shadow-lg disabled:cursor-not-allowed disabled:opacity-50"><Crosshair size={15} />내 위치로</button>
+        </div>
+        {panel}
+      </div>
+      <footer className="relative z-20 flex shrink-0 items-center gap-4 border-t border-neutral-100 bg-white px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4">
+        <p className="flex-1 text-center font-mono text-[20px] font-semibold tabular-nums">{formatElapsed(activeRecord.start_time)}</p>
+        <button onClick={arrive} disabled={arriving} className="w-1/2 rounded-[14px] bg-emerald-500 py-3 text-[14px] font-semibold text-white hover:bg-emerald-600 disabled:opacity-50">{arriving ? '기록 중…' : '도착'}</button>
+      </footer>
+    </div>
+  );
 }

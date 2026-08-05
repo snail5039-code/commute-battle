@@ -12,7 +12,7 @@ export default function MobileTabBar() {
   const pathname = usePathname();
   return (
     <nav aria-label="주요 메뉴" className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200/90 bg-white/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
-      <div className="mx-auto grid max-w-lg grid-cols-6 px-1">
+      <div className="mx-auto grid max-w-lg grid-cols-7 px-1">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.href;
           const Icon = item.icon;

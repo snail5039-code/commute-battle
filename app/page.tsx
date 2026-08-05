@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { User } from '@/lib/types';
 import InitModal from '@/components/InitModal';
 import DashBoard from '@/components/DashBoard';
+import LandingPage from '@/components/LandingPage';
 import { Activity } from 'lucide-react';
 
 export default function Home() {
@@ -18,7 +19,6 @@ export default function Home() {
       const userId = localStorage.getItem('userId');
 
       if (!userId) {
-        setShowInit(true);
         setLoading(false);
         return;
       }
@@ -32,15 +32,11 @@ export default function Home() {
 
         if (error) {
           console.error('Supabase error:', error);
-          setShowInit(true);
         } else if (data) {
           setUser(data as User);
-        } else {
-          setShowInit(true);
         }
       } catch (err) {
         console.error('Error fetching user:', err);
-        setShowInit(true);
       }
 
       setLoading(false);
@@ -58,7 +54,11 @@ export default function Home() {
   }
 
   if (showInit || !user) {
-    return <InitModal onComplete={() => setShowInit(false)} />;
+    if (showInit) {
+      return <InitModal onComplete={() => setShowInit(false)} />;
+    }
+
+    return <LandingPage onStart={() => setShowInit(true)} />;
   }
 
   return <DashBoard />;
