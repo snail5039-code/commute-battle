@@ -9,7 +9,7 @@ export default function MobileTabBar() {
 
   return (
     <nav className="md:hidden fixed bottom-0 inset-x-0 z-20 bg-white/80 backdrop-blur-xl border-t border-black/[0.06] pb-[env(safe-area-inset-bottom)]">
-      <div className="grid grid-cols-4">
+      <div className="grid grid-cols-5">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.href;
           const Icon = item.icon;

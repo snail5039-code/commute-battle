@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { LogIn, LogOut, Clock, Palmtree, Check, MapPin } from 'lucide-react';
 import { User, CommuteRecord, RouteGuideResponse } from '@/lib/types';
 import { generateRouteGuide } from '@/lib/gemini';
-import { isCommuteOnTime, isReturnOnTime } from '@/lib/onTime';
+import { recordArrival } from '@/lib/commuteArrival';
 import { supabase } from '@/lib/supabase';
 import RouteModal from './RouteModal';
-import CommuteMapView from './CommuteMapView';
 
 interface CommuteButtonProps {
   user: User;
@@ -38,12 +38,12 @@ export default function CommuteButton({
   records,
   onChange,
 }: CommuteButtonProps) {
+  const router = useRouter();
   const [showRoute, setShowRoute] = useState(false);
   const [routeType, setRouteType] = useState<'commute' | 'return'>('commute');
   const [routeGuide, setRouteGuide] = useState<RouteGuideResponse | null>(null);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
-  const [showMap, setShowMap] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
   const activeRecord = records.find(
@@ -117,56 +117,7 @@ export default function CommuteButton({
     setLoadingAction('arrive');
 
     try {
-      const arrivedAt = new Date();
-      const start = new Date(activeRecord.start_time!);
-      const duration = Math.round(
-        (arrivedAt.getTime() - start.getTime()) / 60000
-      );
-
-      const onTime =
-        activeRecord.type === 'commute'
-          ? isCommuteOnTime(records, arrivedAt)
-          : isReturnOnTime(records, start);
-
-      const expGained = onTime ? 15 : 10;
-
-      const { error } = await supabase
-        .from('commute_records')
-        .update({
-          end_time: arrivedAt.toISOString(),
-          commute_subtype: 'arrival',
-          duration_minutes: duration,
-          exp_gained: expGained,
-          is_on_time: onTime,
-          updated_at: arrivedAt.toISOString(),
-        })
-        .eq('id', activeRecord.id);
-
-      if (error) throw error;
-
-      const expNeeded = user.character_level * 20;
-      let newLevel = user.character_level;
-      let newExp = user.character_exp + expGained;
-      let newStage = user.character_stage;
-
-      if (newExp >= expNeeded) {
-        newLevel += 1;
-        newExp -= expNeeded;
-        if (newLevel >= 20) newStage = 'veteran';
-        else if (newLevel >= 10) newStage = 'warrior';
-        else if (newLevel >= 5) newStage = 'seedling';
-      }
-
-      await supabase
-        .from('users')
-        .update({
-          character_level: newLevel,
-          character_exp: newExp,
-          character_stage: newStage,
-          total_commute_arrivals: (user.total_commute_arrivals || 0) + 1,
-        })
-        .eq('id', user.id);
-
+      await recordArrival(user, records, activeRecord);
       onChange();
     } catch (error) {
       console.error('Error recording arrival:', error);
@@ -265,7 +216,7 @@ export default function CommuteButton({
         {activeRecord && (
           <div className="flex gap-2.5">
             <button
-              onClick={() => setShowMap(true)}
+              onClick={() => router.push('/map')}
               className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-[12px] text-[13px] font-semibold transition-colors"
             >
               <MapPin size={15} strokeWidth={2.25} />
@@ -311,20 +262,8 @@ export default function CommuteButton({
           onDeparted={async () => {
             setShowRoute(false);
             await onChange();
-            setShowMap(true);
+            router.push('/map');
           }}
-        />
-      )}
-
-      {showMap && activeRecord && (
-        <CommuteMapView
-          user={user}
-          activeRecord={activeRecord}
-          onArrive={async () => {
-            await handleArrival();
-            setShowMap(false);
-          }}
-          onClose={() => setShowMap(false)}
         />
       )}
     </>
