@@ -52,6 +52,10 @@ const MILESTONE_MINUTES = [10, 5, 2];
 const MANUAL_STEP_M = 15;
 const RESUME_PROMPT_DELAY_MS = 10000;
 const INITIAL_POSITION_TIMEOUT_MS = 8000;
+const AUTO_ARRIVAL_DISTANCE_M = 40;
+const AUTO_ARRIVAL_STREAK_REQUIRED = 3;
+
+type TravelMode = 'walk' | 'transit';
 
 const SEGMENT_STYLE: Record<number, { color: string; dashed?: boolean }> = {
   1: { color: '#22c55e' }, // 지하철
@@ -77,12 +81,13 @@ function createPulseMarkerEl() {
   return wrapper;
 }
 
-async function fetchTransitRoute(start: LatLng, dest: LatLng) {
+async function fetchTransitRoute(start: LatLng, dest: LatLng, mode: TravelMode) {
   const params = new URLSearchParams({
     sx: String(start.lng),
     sy: String(start.lat),
     ex: String(dest.lng),
     ey: String(dest.lat),
+    mode,
   });
 
   const res = await fetch(`/api/route/transit?${params}`);
@@ -148,6 +153,10 @@ export default function CommuteMapView({
   const manualModeRef = useRef(false);
   const simDistanceRef = useRef(0);
   const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const destinationRef = useRef<LatLng | null>(null);
+  const arrivalStreakRef = useRef(0);
+  const arrivalTriggeredRef = useRef(false);
+  const onArriveRef = useRef(onArrive);
 
   const [now, setNow] = useState(() => new Date());
   const [arriving, setArriving] = useState(false);
@@ -160,8 +169,13 @@ export default function CommuteMapView({
   const [petMessage, setPetMessage] = useState<string | null>(null);
   const [manualMode, setManualMode] = useState(false);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
+  const [travelMode, setTravelMode] = useState<TravelMode>('transit');
 
   const destLabel = activeRecord.type === 'commute' ? '회사' : '집';
+
+  useEffect(() => {
+    onArriveRef.current = onArrive;
+  }, [onArrive]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
@@ -196,7 +210,7 @@ export default function CommuteMapView({
           );
         };
 
-        const applyPosition = (plainPoint: LatLng) => {
+        const applyPosition = (plainPoint: LatLng, isReliableGps = false) => {
           if (!mapRef.current) return;
           const point = new kakao.maps.LatLng(plainPoint.lat, plainPoint.lng);
 
@@ -215,6 +229,21 @@ export default function CommuteMapView({
           }
 
           setReady(true);
+
+          const destination = destinationRef.current;
+          if (isReliableGps && destination && !arrivalTriggeredRef.current) {
+            const distanceToDestination = haversineDistance(plainPoint, destination);
+            arrivalStreakRef.current =
+              distanceToDestination <= AUTO_ARRIVAL_DISTANCE_M ? arrivalStreakRef.current + 1 : 0;
+
+            if (arrivalStreakRef.current >= AUTO_ARRIVAL_STREAK_REQUIRED) {
+              arrivalTriggeredRef.current = true;
+              setArriving(true);
+              setPetMessage(`${destLabel}에 도착했어요! 이동 기록을 완료할게요.`);
+              void onArriveRef.current().finally(() => setArriving(false));
+              return;
+            }
+          }
 
           const routePolyline = routePolylineRef.current;
           if (routePolyline.length >= 2) {
@@ -258,6 +287,7 @@ export default function CommuteMapView({
         const addressStartCoord = activeRecord.type === 'commute' ? homeCoord : workCoord;
         const destCoord = activeRecord.type === 'commute' ? workCoord : homeCoord;
         const startCoord = liveStart ?? addressStartCoord;
+        destinationRef.current = destCoord;
 
         if (!liveStart && startCoord) {
           new kakao.maps.Marker({
@@ -273,7 +303,7 @@ export default function CommuteMapView({
         }
 
         if (startCoord && destCoord) {
-          const route = await fetchTransitRoute(startCoord, destCoord);
+          const route = await fetchTransitRoute(startCoord, destCoord, travelMode);
 
           if (!cancelled && route) {
             route.segments.forEach((segment) => {
@@ -317,7 +347,11 @@ export default function CommuteMapView({
           } else if (!cancelled) {
             routePolylineRef.current = [];
             routeTotalDistanceRef.current = 0;
-            setPetMessage('ODsay 경로를 아직 가져오지 못했어요. 출발/도착 좌표와 ODsay 응답을 확인해 주세요.');
+            setPetMessage(
+              travelMode === 'walk'
+                ? '도보 경로를 가져오지 못했어요. TMAP 응답을 확인해 주세요.'
+                : '대중교통 경로를 가져오지 못했어요. ODsay 응답을 확인해 주세요.'
+            );
             map.setCenter(
               new kakao.maps.LatLng(
                 (startCoord.lat + destCoord.lat) / 2,
@@ -378,7 +412,10 @@ export default function CommuteMapView({
             if (cancelled || manualModeRef.current) return;
             if (pos.coords.accuracy > 500) return; // 오차가 너무 큰(예: 데스크톱 와이파이 측위) 값은 무시
             setGpsError(null);
-            applyPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+            applyPosition(
+              { lat: pos.coords.latitude, lng: pos.coords.longitude },
+              pos.coords.accuracy <= 100
+            );
           },
           (err) => {
             if (manualModeRef.current) return;
@@ -408,7 +445,7 @@ export default function CommuteMapView({
         window.kakao.maps.event.removeListener(mapInstance, 'click', clickHandler);
       }
     };
-  }, [user.home_address, user.work_address, activeRecord.type, destLabel]);
+  }, [user.home_address, user.work_address, activeRecord.type, destLabel, travelMode]);
 
   const elapsedMs = now.getTime() - new Date(activeRecord.start_time!).getTime();
 
@@ -445,6 +482,31 @@ export default function CommuteMapView({
           className="p-2 rounded-full hover:bg-neutral-100 text-neutral-500"
         >
           <X size={18} />
+        </button>
+      </div>
+
+      <div className="relative z-20 grid grid-cols-2 gap-1.5 border-b border-neutral-100 bg-white px-4 py-2.5">
+        <button
+          type="button"
+          onClick={() => setTravelMode('walk')}
+          className={`rounded-[10px] px-3 py-2 text-[13px] font-semibold transition-colors ${
+            travelMode === 'walk'
+              ? 'bg-neutral-900 text-white'
+              : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'
+          }`}
+        >
+          도보
+        </button>
+        <button
+          type="button"
+          onClick={() => setTravelMode('transit')}
+          className={`rounded-[10px] px-3 py-2 text-[13px] font-semibold transition-colors ${
+            travelMode === 'transit'
+              ? 'bg-blue-600 text-white'
+              : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'
+          }`}
+        >
+          대중교통
         </button>
       </div>
 

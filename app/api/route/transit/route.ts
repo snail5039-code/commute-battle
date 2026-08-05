@@ -309,6 +309,7 @@ async function buildIntercityRoute(
 }
 
 export async function GET(req: NextRequest) {
+  const mode = req.nextUrl.searchParams.get('mode') === 'walk' ? 'walk' : 'transit';
   const start = {
     lng: Number(req.nextUrl.searchParams.get('sx')),
     lat: Number(req.nextUrl.searchParams.get('sy')),
@@ -327,7 +328,7 @@ export async function GET(req: NextRequest) {
     process.env.TMAP_APP_KEY ||
     process.env.TMAP_API_KEY ||
     process.env.NEXT_PUBLIC_TMAP_APP_KEY;
-  if (!odsayKey || !tmapKey) {
+  if (!tmapKey || (mode === 'transit' && !odsayKey)) {
     return NextResponse.json(
       {
         error: 'ODsay 또는 TMAP API 키가 설정되지 않았습니다.',
@@ -338,6 +339,29 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    if (mode === 'walk') {
+      const walking = await fetchWalkingRoute(start, end, tmapKey);
+      return NextResponse.json({
+        summary: {
+          totalTime: walking.sectionTime,
+          totalWalk: walking.distance,
+          payment: 0,
+          firstStartStation: null,
+          lastEndStation: null,
+        },
+        segments: [walking],
+        polyline: walking.points,
+        debug: {
+          provider: 'TMAP',
+          subPathCount: 1,
+          laneCount: 0,
+          polylinePointCount: walking.points.length,
+        },
+      });
+    }
+
+    if (!odsayKey) throw new Error('ODsay API 키가 설정되지 않았습니다.');
+
     let route: BuiltRoute;
     try {
       const data = await searchOdsay(start, end, odsayKey);
