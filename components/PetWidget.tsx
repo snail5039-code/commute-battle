@@ -281,42 +281,48 @@ export default function PetWidget() {
   return (
     <>
       <div
-        className="fixed z-30 flex flex-col items-center gap-2 pointer-events-none"
+        className="fixed z-30 pointer-events-none"
         style={{
           left: pos.x,
           top: pos.y,
+          width: PET_SIZE,
+          height: PET_SIZE,
           transition: dragging
             ? 'none'
             : 'left 3.5s ease-in-out, top 3.5s ease-in-out',
         }}
       >
-        {message ? (
-          <div className="pet-bubble pointer-events-auto max-w-[200px] card p-3 flex items-start gap-2">
-            <p className="text-[12px] text-neutral-700 leading-snug flex-1">
-              {message}
-            </p>
-            <button
-              onClick={() => setMessageBoth(null)}
-              className="text-neutral-300 hover:text-neutral-500 shrink-0"
-            >
-              <X size={13} />
-            </button>
-          </div>
-        ) : thinking ? (
-          <div className="pet-bubble pointer-events-auto card p-2.5 flex items-center gap-1">
-            <span className="pet-dot w-1.5 h-1.5 rounded-full bg-neutral-300" style={{ animationDelay: '0ms' }} />
-            <span className="pet-dot w-1.5 h-1.5 rounded-full bg-neutral-300" style={{ animationDelay: '150ms' }} />
-            <span className="pet-dot w-1.5 h-1.5 rounded-full bg-neutral-300" style={{ animationDelay: '300ms' }} />
-          </div>
-        ) : null}
+        {/* 이 relative 박스는 항상 PET_SIZE x PET_SIZE 고정 — 말풍선은 absolute라
+            이 박스의 크기에 영향을 주지 않는다. 그래야 말풍선이 뜨거나 사라져도
+            버튼(=이동 기준점)의 화면 좌표가 옆으로 밀리지 않는다. */}
+        <div className="relative w-full h-full">
+          {message ? (
+            <div className="pet-bubble pointer-events-auto absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[200px] card p-3 flex items-start gap-2">
+              <p className="text-[12px] text-neutral-700 leading-snug flex-1">
+                {message}
+              </p>
+              <button
+                onClick={() => setMessageBoth(null)}
+                className="text-neutral-300 hover:text-neutral-500 shrink-0"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ) : thinking ? (
+            <div className="pet-bubble pointer-events-auto absolute bottom-full left-1/2 -translate-x-1/2 mb-2 card p-2.5 flex items-center gap-1">
+              <span className="pet-dot w-1.5 h-1.5 rounded-full bg-neutral-300" style={{ animationDelay: '0ms' }} />
+              <span className="pet-dot w-1.5 h-1.5 rounded-full bg-neutral-300" style={{ animationDelay: '150ms' }} />
+              <span className="pet-dot w-1.5 h-1.5 rounded-full bg-neutral-300" style={{ animationDelay: '300ms' }} />
+            </div>
+          ) : null}
 
-        <div className="relative">
           {showHeart && (
             <Heart
               size={16}
-              className="heart-pop absolute -top-1 left-1/2 -translate-x-1/2 text-pink-500 fill-pink-500 pointer-events-none"
+              className="heart-pop absolute -top-4 left-1/2 -translate-x-1/2 text-pink-500 fill-pink-500 pointer-events-none"
             />
           )}
+
           <button
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
@@ -325,7 +331,7 @@ export default function PetWidget() {
               if (e.button === 0 && !movedRef.current) handlePoke();
             }}
             onContextMenu={handleContextMenu}
-            className={`pointer-events-auto w-12 h-12 rounded-full bg-gradient-to-b from-blue-500 to-blue-600 shadow-lg flex items-center justify-center text-white cursor-grab active:cursor-grabbing touch-none ${
+            className={`absolute inset-0 pointer-events-auto w-12 h-12 rounded-full bg-gradient-to-b from-blue-500 to-blue-600 shadow-lg flex items-center justify-center text-white cursor-grab active:cursor-grabbing touch-none ${
               happy ? 'pet-happy' : poked ? 'pet-poke' : !dragging && wandering ? 'pet-float' : ''
             }`}
             title="캐릭터 (우클릭: 메뉴 / 드래그: 이동)"
