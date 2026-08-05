@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Bot, CloudRain, Navigation, Send, ShieldCheck } from 'lucide-react';
 import { requestAssistant } from '@/lib/aiClient';
+import type { AiEvidence } from '@/lib/aiTypes';
 import { loadWorkSchedule, useStore, workTimeToMinutes } from '@/lib/store';
 import { assessDataQuality, qualitySummary } from '@/lib/dataQuality';
 import { geocodeAddress, loadKakaoMapSdk } from '@/lib/kakaoMap';
@@ -11,9 +12,10 @@ import { computeMonthlyStats } from '@/lib/stats';
 import { CommuteRecord, User } from '@/lib/types';
 import { fetchWeather, weatherLabel, type WeatherResponse } from '@/lib/weather';
 import StatusIcon from './StatusIcon';
+import AiEvidencePanel from './AiEvidencePanel';
 
 type Intent = 'departure_time' | 'less_walking' | 'commute_summary' | 'unsupported';
-interface Answer { intent: Intent; text: string; details: string[] }
+interface Answer { intent: Intent; text: string; details: string[]; evidence?: AiEvidence[]; sources?: string[]; cautions?: string[] }
 interface RouteSummary { totalTime?: number; totalWalk?: number }
 
 function parseIntent(input: string): Intent {
@@ -45,6 +47,23 @@ async function fetchRoute(start: { lat: number; lng: number }, end: { lat: numbe
 
 function sameAnswer(left: { text: string; details: string[] }, right: { text: string; details: string[] }) {
   return left.text.trim() === right.text.trim() && JSON.stringify(left.details) === JSON.stringify(right.details);
+}
+
+const RECENT_RESPONSE_KEY = 'commute-battle:assistant-response-hashes:v1';
+function responseHash(value: { text: string; details: string[] }) {
+  const input = `${value.text}|${value.details.join('|')}`;
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) hash = Math.imul(hash ^ input.charCodeAt(index), 16777619);
+  return (hash >>> 0).toString(36);
+}
+function rememberResponse(value: { text: string; details: string[] }) {
+  try {
+    const hash = responseHash(value);
+    const recent = JSON.parse(sessionStorage.getItem(RECENT_RESPONSE_KEY) || '[]') as string[];
+    if (recent.includes(hash)) return false;
+    sessionStorage.setItem(RECENT_RESPONSE_KEY, JSON.stringify([hash, ...recent].slice(0, 12)));
+  } catch { /* session storage unavailable: do not block the answer */ }
+  return true;
 }
 
 export default function AssistantPanel({ user, records }: { user: User; records: CommuteRecord[] }) {
@@ -80,8 +99,8 @@ export default function AssistantPanel({ user, records }: { user: User; records:
       },
     });
     const enhanced = await request.enhancement;
-    if (sameAnswer(enhanced, request.fallback) || sameAnswer(enhanced, fallback)) return;
-    setAnswer({ ...fallback, text: `${fallback.text} ${enhanced.text}`, details: [...fallback.details, ...enhanced.details].slice(0, 6) });
+    if (sameAnswer(enhanced, request.fallback) || sameAnswer(enhanced, fallback) || !rememberResponse(enhanced)) return;
+    setAnswer({ ...fallback, text: enhanced.conclusion || enhanced.text, details: enhanced.details, evidence: enhanced.evidence?.length ? enhanced.evidence : fallback.evidence, sources: enhanced.sources?.length ? enhanced.sources : fallback.sources, cautions: enhanced.cautions?.length ? enhanced.cautions : fallback.cautions });
   }
 
   async function ask(question: string) {
@@ -121,6 +140,13 @@ export default function AssistantPanel({ user, records }: { user: User; records:
           details: [`이동 ${tripMinutes}분 + 변동 여유 ${variability}분${rainBuffer ? ' + 비 여유 10분' : ''}`, forecast ? `${weatherLabel(forecast.current.weatherCode)} · 강수 ${forecast.current.precipitation}mm · 강수확률 ${forecast.current.precipitationProbability}%` : '날씨 조회 실패: 통계 기준으로 계산', route ? '실시간 경로 API 반영' : '경로 조회 실패: 최근 평균으로 계산'],
         };
       }
+      const checkedAt = new Date().toISOString();
+      const evidence: AiEvidence[] = [
+        { label: '최근 통근 기록 분석', kind: 'record', checkedAt, values: [stats.weekly.averageMinutes === null ? '평균 없음' : `평균 ${stats.weekly.averageMinutes}분`, stats.lateRate === null ? '지각률 없음' : `지각률 ${stats.lateRate}%`], fallback: false, source: '브라우저에 저장된 통근 기록' },
+        forecast ? { label: '현재 날씨 조회', kind: 'realtime', checkedAt, values: [`강수 ${forecast.current.precipitation}mm`, `강수확률 ${forecast.current.precipitationProbability}%`], fallback: false, source: '날씨 API' } : { label: '날씨 조회 실패', kind: 'estimate', checkedAt, fallback: true, source: '저장 기록 기반 계산' },
+        route ? { label: '현재 대중교통 경로', kind: 'realtime', checkedAt, values: [`예상 ${route.totalTime ?? 0}분`, `도보 ${route.totalWalk ?? 0}m`], fallback: false, source: '경로 API' } : { label: '경로 조회 실패', kind: 'estimate', checkedAt, values: [stats.weekly.averageMinutes === null ? '기본 45분' : `최근 평균 ${stats.weekly.averageMinutes}분`], fallback: true, source: '규칙 기반 계산' },
+      ];
+      fallback = { ...fallback, evidence: intent === 'commute_summary' ? evidence.slice(0, 1) : evidence, sources: ['통근 기록', ...(forecast ? ['날씨 API'] : []), ...(route ? ['경로 API'] : [])], cautions: ['실시간 교통 상황과 실제 소요 시간은 달라질 수 있습니다.'] };
       setAnswer(fallback);
       await enhance(question, fallback, forecast, route).catch(() => undefined);
     } finally { setBusy(false); }
@@ -131,7 +157,7 @@ export default function AssistantPanel({ user, records }: { user: User; records:
   return <div className="min-w-0 space-y-4">
     <section className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-5"><div className="flex items-center gap-3"><StatusIcon icon={Bot} tone="blue" size="lg" /><div className="min-w-0"><h2 className="font-bold text-slate-950">출퇴근 비서</h2><p className="mt-0.5 text-xs leading-5 text-slate-500">날씨 · 경로 · 신뢰 가능한 통계를 함께 확인해요.</p></div></div></section>
     <div className="flex flex-wrap gap-2">{examples.map((example) => <button key={example} onClick={() => void ask(example)} disabled={busy} className="min-h-10 rounded-full border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">{example}</button>)}</div>
-    {answer && <section aria-live="polite" className="card p-5"><p className="text-sm font-semibold leading-6 text-slate-900">{answer.text}</p><ul className="mt-3 space-y-2 text-xs leading-5 text-slate-600">{answer.details.map((detail, index) => <li key={`${detail}-${index}`} className="flex gap-2"><ShieldCheck size={15} className="mt-0.5 shrink-0 text-blue-600"/>{detail}</li>)}</ul>{answer.intent === 'less_walking' && <Link href="/map" className="mt-4 inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs font-bold text-blue-700 hover:bg-blue-50"><Navigation size={14}/>이동 화면 열기</Link>}</section>}
+    {answer && <section aria-live="polite" className="card p-5"><h3 className="text-xs font-bold text-slate-500">결론</h3><p className="mt-1 text-sm font-semibold leading-6 text-slate-900">{answer.text}</p><ul className="mt-3 space-y-2 text-xs leading-5 text-slate-600">{answer.details.map((detail, index) => <li key={`${detail}-${index}`} className="flex gap-2"><ShieldCheck size={15} className="mt-0.5 shrink-0 text-blue-600"/>{detail}</li>)}</ul>{answer.intent === 'less_walking' && <Link href="/map" className="mt-4 inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs font-bold text-blue-700 hover:bg-blue-50"><Navigation size={14}/>이동 화면 열기</Link>}<AiEvidencePanel evidence={answer.evidence ?? [{ label: '규칙 기반 답변', kind: 'estimate', fallback: true, source: '앱 내 계산' }]} sources={answer.sources ?? []} cautions={answer.cautions ?? []}/></section>}
     <form onSubmit={submit} className="card flex min-w-0 gap-2 p-3"><label className="sr-only" htmlFor="assistant-question">질문</label><input id="assistant-question" value={input} onChange={(event) => setInput(event.target.value)} placeholder="출퇴근 질문을 입력하세요" className="min-w-0 flex-1 rounded-xl border border-transparent bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100"/><button disabled={busy} className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50" aria-label="질문 보내기">{busy ? <CloudRain className="animate-pulse" size={18}/> : <Send size={18}/>}</button></form>
     <p className="text-center text-[11px] text-neutral-400">규칙 기반 intent만 처리하며 데이터베이스에는 쓰지 않습니다.</p>
   </div>;

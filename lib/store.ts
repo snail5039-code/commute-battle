@@ -10,6 +10,57 @@ export const DEFAULT_WORK_SCHEDULE: WorkSchedule = {
 const WORK_SCHEDULE_KEY = 'commuteBattle.workSchedule';
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
+export type PetMessageFrequency = 'normal' | 'quiet';
+
+export interface LocalSettings {
+  petMessageFrequency: PetMessageFrequency;
+}
+
+export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
+  petMessageFrequency: 'normal',
+};
+
+const LOCAL_SETTINGS_KEY = 'commute-battle:settings:v1';
+export const AI_FEEDBACK_STORAGE_KEY = 'commute-battle:assistant-feedback:v1';
+
+export function localSettingsStorageKey(userId?: string) {
+  return `${LOCAL_SETTINGS_KEY}:${userId || 'local'}`;
+}
+
+export function loadLocalSettings(userId?: string): LocalSettings {
+  if (typeof window === 'undefined') return DEFAULT_LOCAL_SETTINGS;
+  try {
+    const value = JSON.parse(localStorage.getItem(localSettingsStorageKey(userId)) || 'null') as Partial<LocalSettings> | null;
+    return {
+      petMessageFrequency: value?.petMessageFrequency === 'quiet' ? 'quiet' : 'normal',
+    };
+  } catch {
+    return DEFAULT_LOCAL_SETTINGS;
+  }
+}
+
+export function saveLocalSettings(userId: string | undefined, settings: LocalSettings) {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(localSettingsStorageKey(userId), JSON.stringify(settings));
+    localStorage.setItem('petQuiet', String(settings.petMessageFrequency === 'quiet'));
+  }
+  return settings;
+}
+
+export function clearAiLocalData() {
+  if (typeof window !== 'undefined') localStorage.removeItem(AI_FEEDBACK_STORAGE_KEY);
+}
+
+export function clearAllLocalSettings(userId?: string) {
+  if (typeof window === 'undefined') return;
+  [
+    workScheduleStorageKey(userId), localSettingsStorageKey(userId), AI_FEEDBACK_STORAGE_KEY,
+    'commuteRoutePreference', 'commuteRouteFavorites:v1', 'commuteRouteLearning:v1',
+    'commuteRouteLearningEnabled:v1', 'commute-battle:selected-pet', 'petQuiet',
+    'uiCompact', 'uiContrast', 'uiReducedMotion',
+  ].forEach((key) => localStorage.removeItem(key));
+}
+
 export function workTimeToMinutes(time: string) {
   const [hours, minutes] = time.split(':').map(Number);
   return hours * 60 + minutes;

@@ -4,12 +4,11 @@ export type CharacterStage = (typeof CHARACTER_STAGES)[number];
 
 export const STAGE_NAMES: Record<CharacterStage, string> = {
   alg: '알',
-  seedling: '새싹 용사',
+  seedling: '새싹 사원',
   warrior: '출근 전사',
   veteran: '베테랑 직장인',
 };
 
-// 기존 stage/exp 값은 그대로 두고, 앞으로 얻는 경험치에만 적용할 수 있는 완만한 성장 규칙이다.
 export const EVOLUTION_LEVELS: Record<CharacterStage, number | null> = {
   alg: 3,
   seedling: 6,
@@ -25,7 +24,6 @@ export const NEXT_EVOLUTION: Record<CharacterStage, string> = {
 };
 
 export function getExpNeeded(level: number): number {
-  // 종전 level * 20보다 초반 요구량을 낮추며, 저장된 잔여 exp 형식은 유지한다.
   return Math.max(10, 8 + Math.max(1, level) * 4);
 }
 
@@ -34,4 +32,25 @@ export function getStageForLevel(level: number): CharacterStage {
   if (level >= 6) return 'warrior';
   if (level >= 3) return 'seedling';
   return 'alg';
+}
+
+export interface LevelProgress {
+  level: number;
+  exp: number;
+  stage: CharacterStage;
+  levelsGained: number;
+  evolved: boolean;
+}
+
+/** Applies an EXP reward without changing the established per-level EXP curve. */
+export function applyExpReward(level: number, exp: number, reward: number): LevelProgress {
+  let nextLevel = Math.max(1, level);
+  let nextExp = Math.max(0, exp) + Math.max(0, reward);
+  const previousStage = getStageForLevel(nextLevel);
+  while (nextExp >= getExpNeeded(nextLevel)) {
+    nextExp -= getExpNeeded(nextLevel);
+    nextLevel += 1;
+  }
+  const stage = getStageForLevel(nextLevel);
+  return { level: nextLevel, exp: nextExp, stage, levelsGained: nextLevel - Math.max(1, level), evolved: stage !== previousStage };
 }

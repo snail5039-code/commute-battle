@@ -61,7 +61,9 @@ export interface AssistantInput {
   question: string;
   context: { averageMinutes: number | null; variabilityMinutes: number | null; lateRate: number | null; weather?: string; routeMinutes?: number | null };
 }
-export interface AssistantAnswer { text: string; details: string[] }
+export type AiEvidenceKind = 'realtime' | 'record' | 'estimate';
+export interface AiEvidence { label: string; kind: AiEvidenceKind; checkedAt?: string; values?: string[]; fallback?: boolean; source?: string }
+export interface AssistantAnswer { text: string; details: string[]; conclusion?: string; evidence?: AiEvidence[]; sources?: string[]; cautions?: string[]; generatedAt?: string; fallback?: boolean }
 
 export type AiRequest =
   | { kind: 'route-comment'; input: Omit<RouteCommentInput, 'departureTime'> & { departureTime: string } }

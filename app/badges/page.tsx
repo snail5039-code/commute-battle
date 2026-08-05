@@ -1,10 +1,17 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { Check, Lightbulb, LockKeyhole, Sparkles } from 'lucide-react';
 import { useAppData } from '@/lib/useAppData';
-import { BadgeRarity, getBadgeSummary } from '@/lib/badges';
+import { type BadgeRarity, getBadgeSummary } from '@/lib/badges';
+import { applyExpReward, type LevelProgress } from '@/lib/characterStages';
+import { isAccessoryUnlocked, PET_ACCESSORIES } from '@/lib/petCatalog';
+import { readQuestLedger } from '@/lib/quests';
+import { supabase } from '@/lib/supabase';
 import TopBar from '@/components/TopBar';
 import BadgeIcon from '@/components/BadgeIcon';
+import QuestBoard from '@/components/QuestBoard';
+import EvolutionCelebration from '@/components/EvolutionCelebration';
 
 const RARITY: Record<BadgeRarity, { label: string; chip: string; icon: string; bar: string }> = {
   common: { label: '일반', chip: 'bg-slate-100 text-slate-600', icon: 'bg-slate-100 text-slate-500 ring-slate-200', bar: 'bg-slate-500' },
@@ -14,64 +21,28 @@ const RARITY: Record<BadgeRarity, { label: string; chip: string; icon: string; b
 };
 
 export default function BadgesPage() {
-  const { user, records, loading } = useAppData();
+  const { user, records, loading, refetch } = useAppData();
+  const [celebration, setCelebration] = useState<LevelProgress | null>(null);
+  const summary = useMemo(() => getBadgeSummary(records), [records]);
   if (loading) return null;
   if (!user) return <div className="flex min-h-screen flex-col"><TopBar title="배지" /><div className="p-8 text-sm text-slate-500">게임을 먼저 시작해 주세요.</div></div>;
+  const { progress, completed, total } = summary;
+  const completedBadges = new Set(progress.filter((x) => x.completed).map((x) => x.badge.key));
+  const completedQuests = new Set(readQuestLedger().claimKeys.map((key) => key.split(':')[0]));
+  const reward = async (exp: number) => {
+    const next = applyExpReward(user.character_level, user.character_exp, exp);
+    const { error } = await supabase.from('users').update({ character_level: next.level, character_exp: next.exp, character_stage: next.stage }).eq('id', user.id);
+    if (error) return false;
+    await refetch();
+    if (next.levelsGained > 0) setCelebration(next);
+    return true;
+  };
 
-  const { progress, completed, total } = getBadgeSummary(records);
-  const overallPercent = Math.round((completed / total) * 100);
-
-  return (
-    <div className="flex min-h-screen flex-col">
-      <TopBar title="배지" subtitle={`나의 생존 배지 ${completed} / ${total}`} />
-      <main className="flex-1 p-4 md:p-8">
-        <div className="mx-auto max-w-5xl">
-          <section className="card mb-6 overflow-hidden bg-gradient-to-br from-slate-900 to-blue-950 p-6 text-white">
-            <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
-              <div>
-                <div className="mb-2 flex items-center gap-2 text-blue-200"><Sparkles size={16} /><span className="text-xs font-bold uppercase tracking-widest">Badge collection</span></div>
-                <h1 className="text-2xl font-black tracking-tight">출퇴근 모험 도감</h1>
-                <p className="mt-1.5 text-sm text-slate-300">평범한 하루도 기록하면 업적이 됩니다.</p>
-              </div>
-              <div className="min-w-48">
-                <div className="mb-1.5 flex justify-between text-xs"><span className="text-slate-300">수집 진행도</span><strong>{overallPercent}%</strong></div>
-                <div className="h-2 overflow-hidden rounded-full bg-white/15"><div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-blue-400 transition-[width]" style={{ width: `${overallPercent}%` }} /></div>
-              </div>
-            </div>
-          </section>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {progress.map(({ badge, displayed, percent, completed: done, revealed }) => {
-              const rarity = RARITY[badge.rarity];
-              return (
-                <article key={badge.key} className={`card relative overflow-hidden p-5 transition-transform hover:-translate-y-0.5 ${done ? 'ring-1 ring-blue-100' : ''}`}>
-                  {done && <div className="absolute right-0 top-0 rounded-bl-2xl bg-emerald-500 px-3 py-2 text-white" aria-label="완료"><Check size={14} strokeWidth={3} /></div>}
-                  <div className="flex items-start gap-3.5">
-                    <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ring-1 ${done ? rarity.icon : 'bg-slate-100 text-slate-400 ring-slate-200'}`}>
-                      {revealed ? <BadgeIcon icon={badge.icon} size={21} /> : <LockKeyhole size={19} />}
-                    </div>
-                    <div className="min-w-0 flex-1 pr-5">
-                      <div className="mb-1 flex items-center gap-1.5">
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${rarity.chip}`}>{rarity.label}</span>
-                        {badge.hidden && <span className="text-[10px] font-semibold text-slate-400">HIDDEN</span>}
-                      </div>
-                      <h2 className={`text-sm font-bold ${revealed ? 'text-slate-900' : 'text-slate-500'}`}>{revealed ? badge.name : '??? 비밀 배지'}</h2>
-                    </div>
-                  </div>
-
-                  <p className="mt-4 min-h-10 text-xs leading-relaxed text-slate-500">{revealed ? badge.description : '달성하면 배지의 이름과 조건이 공개됩니다.'}</p>
-                  {!done && <div className="mt-3 flex gap-2 rounded-xl bg-amber-50/80 px-3 py-2.5 text-[11px] leading-relaxed text-amber-800"><Lightbulb className="mt-0.5 shrink-0" size={13} /><span><strong>힌트</strong> · {badge.hint}</span></div>}
-                  <div className="mt-4">
-                    <div className="mb-1.5 flex justify-between text-[11px]"><span className="font-medium text-slate-500">{done ? '해금 완료' : '진행 중'}</span><span className="font-semibold text-slate-600">{displayed} / {badge.target}{badge.unit} · {percent}%</span></div>
-                    <div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full transition-[width] ${done ? 'bg-emerald-500' : rarity.bar}`} style={{ width: `${percent}%` }} /></div>
-                  </div>
-                  {done && <div className="mt-3 flex items-center gap-1.5 text-[11px] font-bold text-emerald-600"><Sparkles size={13} />새로운 업적이 해금되었어요!</div>}
-                </article>
-              );
-            })}
-          </div>
-        </div>
-      </main>
-    </div>
-  );
+  return <div className="flex min-h-screen flex-col"><TopBar title="배지와 퀘스트" subtitle={`나의 배지 ${completed} / ${total}`} />
+    <main className="flex-1 p-4 md:p-8"><div className="mx-auto max-w-5xl space-y-6">
+      <section className="card overflow-hidden bg-gradient-to-br from-slate-900 to-blue-950 p-6 text-white"><div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><div className="mb-2 flex items-center gap-2 text-blue-200"><Sparkles size={16} /><span className="text-xs font-bold uppercase tracking-widest">Badge collection</span></div><h1 className="text-2xl font-black">출퇴근 모험 도감</h1><p className="mt-2 max-w-lg text-sm text-slate-300">실제 출퇴근 기록으로 배지와 펫 액세서리를 해금하세요. 휴가·병가는 연속 출근을 보호하고 결근은 기록을 끊습니다.</p></div><div className="text-right"><strong className="text-3xl">{completed}</strong><span className="text-slate-400"> / {total}</span></div></div></section>
+      <QuestBoard records={records} onReward={reward} />
+      <section className="card p-5"><h2 className="font-bold text-slate-900">펫 액세서리</h2><p className="mt-1 text-xs text-slate-500">레벨, 배지, 퀘스트를 달성해 무료 액세서리를 모아 보세요.</p><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">{PET_ACCESSORIES.map((item) => { const unlocked = isAccessoryUnlocked(item, user.character_level, completedBadges, completedQuests); return <div key={item.id} className={`rounded-2xl border p-3 ${unlocked ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50 text-slate-400'}`}><div className="text-xl" aria-hidden>{unlocked ? item.emoji : '○'}</div><h3 className="mt-2 text-xs font-bold">{item.name}</h3><p className="mt-1 text-[10px] leading-relaxed">{unlocked ? item.description : '조건을 달성하면 해금'}</p></div>; })}</div></section>
+      <section><div className="mb-3 flex items-center justify-between"><h2 className="font-bold text-slate-900">전체 배지</h2><span className="text-xs text-slate-500">{Math.round(completed / total * 100)}% 완료</span></div><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{progress.map(({ badge, displayed, percent, completed: done, revealed }) => { const style = RARITY[badge.rarity]; return <article key={badge.key} className={`card p-5 ${done ? '' : 'opacity-90'}`}><div className="flex items-start gap-3"><div className={`grid size-12 shrink-0 place-items-center rounded-2xl ring-1 ring-inset ${revealed ? style.icon : 'bg-slate-100 text-slate-400 ring-slate-200'}`}>{revealed ? <BadgeIcon icon={badge.icon} /> : <LockKeyhole size={18} />}</div><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><h3 className="truncate text-sm font-bold text-slate-800">{revealed ? badge.name : '비밀 배지'}</h3>{done && <Check size={16} className="text-emerald-500" />}</div><span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${style.chip}`}>{style.label}</span></div></div><p className="mt-3 min-h-8 text-xs leading-relaxed text-slate-500">{revealed ? badge.description : badge.hint}</p><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${style.bar}`} style={{ width: `${percent}%` }} /></div><div className="mt-2 flex items-center justify-between text-[11px] text-slate-400"><span>{displayed}/{badge.target}{badge.unit}</span>{!done && <span className="flex items-center gap-1"><Lightbulb size={11} />{badge.hint}</span>}</div></article>; })}</div></section>
+    </div></main>{celebration && <EvolutionCelebration level={celebration.level} stage={celebration.stage} evolved={celebration.evolved} onClose={() => setCelebration(null)} />}</div>;
 }

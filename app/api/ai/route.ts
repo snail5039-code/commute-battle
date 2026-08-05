@@ -78,7 +78,7 @@ function promptFor(request: AiRequest) {
   if (request.kind === 'route-guide') return `${guard}\n이동 안내를 짧게 작성하라. 형식: {"route":"","recommended_departure":"","difficulty":"peaceful|caution|alert|danger","message":""}\nDATA=${JSON.stringify(request.input)}`;
   if (request.kind === 'character-message') return `${guard}\n친근한 성장형 캐릭터 말투로 한국어 한 문장, 40자 이내로 작성하라. 형식: {"message":""}\nDATA=${JSON.stringify(request.input)}`;
   if (request.kind === 'stats-comment') return `${guard}\n출퇴근 기록 코치로서 과장하지 말고 관찰 하나와 다음 행동 하나를 한국어 두 문장, 180자 이내로 작성하라. 형식: {"comment":""}\nDATA=${JSON.stringify(request.input)}`;
-  return `${guard}\n출퇴근 질문에 제공된 context만 사용해 답하라. 개인정보, 기록 변경, 확인되지 않은 실시간 정보 요청은 거절하라. 형식: {"text":"","details":[""]}\nDATA=${JSON.stringify(request.input)}`;
+  return `${guard}\n출퇴근 질문에 제공된 context만 사용해 답하라. 개인정보나 기록 변경을 요구하지 말고 확인되지 않은 실시간 정보는 추측하지 마라. 결론/핵심 근거/출처/주의사항을 구분하라. evidence.kind는 realtime|record|estimate 중 하나다. 형식: {"text":"","details":[""],"conclusion":"","evidence":[{"label":"","kind":"estimate","checkedAt":"","values":[""],"fallback":false,"source":""}],"sources":[""],"cautions":[""]}\nDATA=${JSON.stringify(request.input)}`;
 }
 
 function extractJson(raw: string): unknown {
@@ -100,7 +100,14 @@ function validateResult(kind: AiRequest['kind'], value: unknown): unknown {
   if (kind === 'character-message') { if (!bounded(value.message, 80)) throw new Error('Invalid character message'); return value.message; }
   if (kind === 'stats-comment') { if (!bounded(value.comment, 240)) throw new Error('Invalid stats comment'); return value.comment; }
   if (!bounded(value.text, 300) || !Array.isArray(value.details) || value.details.length > 4 || !value.details.every((item) => bounded(item, 180))) throw new Error('Invalid assistant answer');
-  return { text: value.text, details: value.details };
+  const conclusion = value.conclusion === undefined ? undefined : bounded(value.conclusion, 300) ? value.conclusion : undefined;
+  const sources = Array.isArray(value.sources) ? value.sources.filter((item) => bounded(item, 120)).slice(0, 4) : undefined;
+  const cautions = Array.isArray(value.cautions) ? value.cautions.filter((item) => bounded(item, 180)).slice(0, 4) : undefined;
+  const evidence = Array.isArray(value.evidence) ? value.evidence.flatMap((item) => {
+    if (!plainObject(item) || !bounded(item.label, 180) || !['realtime', 'record', 'estimate'].includes(String(item.kind))) return [];
+    return [{ label: item.label, kind: item.kind, checkedAt: bounded(item.checkedAt, 40) ? item.checkedAt : undefined, values: Array.isArray(item.values) ? item.values.filter((entry) => bounded(entry, 80)).slice(0, 5) : undefined, fallback: typeof item.fallback === 'boolean' ? item.fallback : undefined, source: bounded(item.source, 120) ? item.source : undefined }];
+  }).slice(0, 6) : undefined;
+  return { text: value.text, details: value.details, conclusion, evidence, sources, cautions, generatedAt: new Date().toISOString(), fallback: false };
 }
 
 async function generate(request: AiRequest) {

@@ -1,14 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, Bus, ChevronDown, ChevronUp, Clock3, Crosshair, Footprints, MapPin, Navigation, Sparkles, TrainFront, X } from 'lucide-react';
+import { AlertCircle, Bookmark, Bus, ChevronDown, ChevronUp, Clock3, Crosshair, Footprints, MapPin, Navigation, Sparkles, TrainFront, X } from 'lucide-react';
 import { CommuteRecord, User } from '@/lib/types';
 import { haversineDistance, LatLng } from '@/lib/geo';
 import { geocodeAddress, loadKakaoMapSdk } from '@/lib/kakaoMap';
 import { generateRouteComment, RouteComment } from '@/lib/gemini';
-import { resetRouteNotifications, showRouteNotificationOnce } from '@/lib/notifications';
-import { calculateRouteProgress, type RouteIntelligence, type RouteProgress } from '@/lib/routeIntelligence';
-import { getRoutePreference, saveRoutePreference, type RoutePreference } from '@/lib/routePreferences';
+import { resetRouteNotifications, showArrivalSuggestionOnce, showRouteNotificationOnce } from '@/lib/notifications';
+import { type RouteIntelligence } from '@/lib/routeIntelligence';
+import { acceptLocationSample, calculateDetailedRouteProgress, type AcceptedLocation, type DetailedRouteProgress } from '@/lib/routeProgress';
+import { getFavoriteRoutes, getRoutePreference, saveRoutePreference, toggleFavoriteRoute, type FavoriteRoute, type RoutePreference } from '@/lib/routePreferences';
+import { clearRouteLearning, isRouteLearningEnabled, recommendRoute, recordRouteChoice, routeSignature, setRouteLearningEnabled, type WeatherCondition } from '@/lib/routeLearning';
+import RouteFavoritesPanel from '@/components/RouteFavoritesPanel';
 
 interface CommuteMapViewProps { user: User; activeRecord: CommuteRecord; onArrive: () => Promise<void>; onClose: () => void }
 type TravelMode = 'walk' | 'transit';
@@ -43,14 +46,15 @@ interface RouteResponse {
 
 const SEOUL = { lat: 37.5665, lng: 126.978 };
 const GEO_OPTIONS: PositionOptions = { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 };
-const ROUTE_REFRESH_DISTANCE_M = 100;
-const ROUTE_REFRESH_INTERVAL_MS = 30000;
 const CURRENT_LOCATION_LEVEL = 3;
 const SEGMENT_COLORS: Record<number, string> = { 1: '#10b981', 2: '#2563eb', 3: '#64748b' };
 const CONNECTION_GAP_M = 1;
 const LONG_WALK_WARNING_M = 1000;
 const APPROACH_NOTICE_M = 450;
 const OFF_ROUTE_THRESHOLD_M = 150;
+const OFF_ROUTE_REQUIRED_SAMPLES = 3;
+const OFF_ROUTE_REQUIRED_MS = 60_000;
+const REROUTE_COOLDOWN_MS = 120_000;
 
 const BADGE_LABEL = { fastest: '빠른 경로', 'least-walking': '도보 적은 경로', 'fewest-transfers': '환승 적은 경로' } as const;
 
@@ -159,6 +163,22 @@ function isUnavailableWalkingGeometry(segment: RouteSegment) {
   return segment.trafficType === 3 && segment.geometrySource === 'unavailable';
 }
 
+function toLearnableRoute(route: RouteResponse) {
+  return {
+    signature: routeSignature(route.segments),
+    totalTime: route.summary.totalTime,
+    totalWalk: route.summary.totalWalk,
+    transferCount: route.intelligence?.transferCount ?? Math.max(0, route.segments.filter((segment) => segment.trafficType !== 3).length - 1),
+  };
+}
+
+function normalizeWeather(value?: string): WeatherCondition {
+  if (value === 'danger' || value === 'alert') return 'severe';
+  if (value === 'caution') return 'wet';
+  if (value === 'peaceful' || value === 'clear') return 'clear';
+  return 'unknown';
+}
+
 export default function CommuteMapView({ user, activeRecord, onArrive, onClose }: CommuteMapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<kakao.maps.Map | null>(null);
@@ -178,8 +198,16 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   const startBasisRef = useRef<StartBasis>('current');
   const userCenteredRef = useRef(false);
   const initialViewportSetRef = useRef(false);
+  const acceptedLocationRef = useRef<AcceptedLocation | null>(null);
+  const offRouteRef = useRef({ consecutive: 0, startedAt: 0, autoAttempted: false });
+  const rerouteCooldownUntilRef = useRef(0);
+  const rerouteInFlightRef = useRef(false);
   const [mode, setMode] = useState<TravelMode>('transit');
   const [routePreference, setRoutePreference] = useState<RoutePreference>(() => getRoutePreference());
+  const direction = activeRecord.type === 'return' ? 'return' : 'commute';
+  const [favorites, setFavorites] = useState<FavoriteRoute[]>(() => getFavoriteRoutes(direction));
+  const [learningEnabled, setLearningEnabledState] = useState(() => isRouteLearningEnabled());
+  const [recommendationReason, setRecommendationReason] = useState<string | null>(null);
   const [startBasis, setStartBasis] = useState<StartBasis>('current');
   const [routePoints, setRoutePoints] = useState<{ start: LatLng; end: LatLng } | null>(null);
   const [route, setRoute] = useState<RouteResponse | null>(null);
@@ -198,7 +226,9 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   const [commentLoading, setCommentLoading] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
   const [commentOpen, setCommentOpen] = useState(true);
-  const [progress, setProgress] = useState<RouteProgress | null>(null);
+  const [progress, setProgress] = useState<DetailedRouteProgress | null>(null);
+  const [progressNotice, setProgressNotice] = useState<string | null>(null);
+  const [arrivalSuggested, setArrivalSuggested] = useState(false);
   const [rerouting, setRerouting] = useState(false);
   const [, tick] = useState(0);
 
@@ -312,7 +342,14 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
 
     const acceptLivePosition = (position: GeolocationPosition, initial: boolean) => {
       if (cancelled) return;
-      const point = coordinates(position);
+      const candidate = { ...coordinates(position), accuracy: position.coords.accuracy, timestamp: position.timestamp };
+      const accepted = acceptLocationSample(candidate, acceptedLocationRef.current);
+      if (!accepted) {
+        setProgressNotice(`GPS 정확도가 낮거나 오래된 위치입니다 (정확도 ${Math.round(position.coords.accuracy)}m). 진행 상황은 추정 상태로 유지됩니다.`);
+        return;
+      }
+      acceptedLocationRef.current = accepted;
+      const point = { lat: accepted.lat, lng: accepted.lng };
       const shouldSetInitialViewport = initial && !initialViewportSetRef.current;
       if (shouldSetInitialViewport) {
         initialViewportSetRef.current = true;
@@ -321,11 +358,37 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
       showCurrentPosition(point, shouldSetInitialViewport);
       setHasCurrentLocation(true);
       setLocationStatus('tracking');
-      setLocationNotice(`현재 위치 사용 중 · 정확도 약 ${Math.round(position.coords.accuracy)}m`);
+      setLocationNotice(`현재 위치 사용 중 · 정확도 약 ${Math.round(accepted.accuracy)}m`);
+      setProgressNotice(null);
       const activeRoute = routeRef.current;
-      if (activeRoute && position.coords.accuracy <= 120) {
-        const nextProgress = calculateRouteProgress(point, activeRoute.estimated ? [] : activeRoute.polyline, activeRoute.summary.totalTime, endRef.current ?? undefined);
+      if (activeRoute) {
+        const progressSegments = activeRoute.estimated ? [] : activeRoute.segments;
+        const nextProgress = calculateDetailedRouteProgress(accepted, progressSegments, activeRoute.summary.totalTime, endRef.current ?? undefined);
         setProgress(nextProgress);
+        if (nextProgress?.arrivalSuggested) {
+          setArrivalSuggested(true);
+          showArrivalSuggestionOnce(`${activeRoute.id || 'route'}:arrival`);
+        }
+        const offRoute = Boolean(nextProgress && nextProgress.source === 'route-geometry' && nextProgress.distanceFromRoute > OFF_ROUTE_THRESHOLD_M);
+        if (offRoute) {
+          const state = offRouteRef.current;
+          state.consecutive += 1;
+          if (!state.startedAt) state.startedAt = accepted.timestamp;
+          const thresholdReached = state.consecutive >= OFF_ROUTE_REQUIRED_SAMPLES || accepted.timestamp - state.startedAt >= OFF_ROUTE_REQUIRED_MS;
+          if (thresholdReached && !state.autoAttempted && !rerouteInFlightRef.current && Date.now() >= rerouteCooldownUntilRef.current && endRef.current) {
+            state.autoAttempted = true;
+            rerouteInFlightRef.current = true;
+            rerouteCooldownUntilRef.current = Date.now() + REROUTE_COOLDOWN_MS;
+            setRerouting(true);
+            lastRequestKeyRef.current = '';
+            startBasisRef.current = 'current';
+            startRef.current = point;
+            setStartBasis('current');
+            setRoutePoints({ start: point, end: endRef.current });
+          }
+        } else {
+          offRouteRef.current = { consecutive: 0, startedAt: 0, autoAttempted: false };
+        }
         const upcoming = activeRoute.segments.find((segment) => segment.trafficType !== 3 && segment.points[0] && haversineDistance(point, segment.points[0]) <= APPROACH_NOTICE_M);
         const finalTransit = activeRoute.segments.findLast((segment) => segment.trafficType !== 3);
         if (upcoming) {
@@ -337,9 +400,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
           if (metres <= APPROACH_NOTICE_M) showRouteNotificationOnce(`${activeRoute.id}:alight:${finalTransit.endName || finalTransit.label}`, '하차 지점에 접근 중', `${finalTransit.endName || '하차 지점'}까지 확인된 거리 약 ${metres}m입니다. 하차 후 목적지 경로를 확인하세요.`);
         }
       }
-      const previousOrigin = lastRouteOriginRef.current;
-      const shouldRefresh = !previousOrigin || (Date.now() - lastRouteAtRef.current >= ROUTE_REFRESH_INTERVAL_MS && haversineDistance(previousOrigin, point) >= ROUTE_REFRESH_DISTANCE_M);
-      if (startBasisRef.current === 'current' && (initial || shouldRefresh)) {
+      if (startBasisRef.current === 'current' && initial) {
         startRef.current = point;
         if (endRef.current) setRoutePoints({ start: point, end: endRef.current });
       }
@@ -393,6 +454,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
       if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
       watchRef.current = null;
       requestIdRef.current += 1;
+      acceptedLocationRef.current = null;
       clearRoute();
       clearFixedMarkers();
       currentOverlayRef.current?.setMap(null);
@@ -422,22 +484,32 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
       setRouteComment(null);
       setCommentLoading(true);
       setCommentError(null);
-      const preferred = selectedMode === 'transit'
-        ? data.candidates?.find((candidate) => candidate.intelligence?.badges.includes(routePreference))
-        : undefined;
+      const weather = normalizeWeather(activeRecord.weather_condition);
+      const recommendation = selectedMode === 'transit' && data.candidates
+        ? recommendRoute(data.candidates.map(toLearnableRoute), direction, routePreference, weather)
+        : null;
+      const preferred = recommendation
+        ? data.candidates?.find((candidate) => routeSignature(candidate.segments) === recommendation.signature)
+        : selectedMode === 'transit' ? data.candidates?.find((candidate) => candidate.intelligence?.badges.includes(routePreference)) : undefined;
+      setRecommendationReason(recommendation?.reason ?? null);
       const selected = preferred ? { ...preferred, candidates: data.candidates } : data;
       setRoute(selected);
       routeRef.current = selected;
       setProgress(null);
+      setArrivalSuggested(false);
       setRerouting(false);
       resetRouteNotifications();
       drawRoute(selected, selectedMode);
     }).catch((reason) => {
       if (requestId === requestIdRef.current) setError(reason instanceof Error ? reason.message : '경로를 불러오지 못했습니다.');
     }).finally(() => {
-      if (requestId === requestIdRef.current) setLoading(false);
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+        setRerouting(false);
+        rerouteInFlightRef.current = false;
+      }
     });
-  }, [clearRoute, drawRoute, mapReady, mode, routePoints, routePreference, showFixedMarkers]);
+  }, [activeRecord.weather_condition, clearRoute, direction, drawRoute, mapReady, mode, routePoints, routePreference, showFixedMarkers]);
 
   useEffect(() => { const timer = setInterval(() => tick((value) => value + 1), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => {
@@ -493,6 +565,23 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
     routeRef.current = selected;
     resetRouteNotifications();
     drawRoute(selected, mode);
+    recordRouteChoice(direction, toLearnableRoute(candidate), normalizeWeather(activeRecord.weather_condition));
+  };
+
+  const toggleFavorite = (candidate: RouteResponse) => {
+    setFavorites(toggleFavoriteRoute(direction, toLearnableRoute(candidate)));
+  };
+
+  const toggleLearning = () => {
+    const next = !learningEnabled;
+    setRouteLearningEnabled(next);
+    setLearningEnabledState(next);
+    if (!next) setRecommendationReason(null);
+  };
+
+  const resetLearning = () => {
+    clearRouteLearning();
+    setRecommendationReason('선택 학습 기록을 초기화했어요');
   };
 
   const changeRoutePreference = (preference: RoutePreference) => {
@@ -504,7 +593,8 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
 
   const rerouteFromCurrentLocation = () => {
     const current = currentLocationRef.current;
-    if (!current || !endRef.current) return;
+    if (!current || !endRef.current || rerouteInFlightRef.current) return;
+    rerouteInFlightRef.current = true;
     setRerouting(true);
     lastRequestKeyRef.current = '';
     startBasisRef.current = 'current';
@@ -514,6 +604,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   };
 
   const isOffRoute = progress?.source === 'route-geometry' && progress.distanceFromRoute > OFF_ROUTE_THRESHOLD_M;
+  const currentModeLabel = progress?.currentSegment?.trafficType === 3 ? '도보' : progress?.currentSegment?.trafficType === 2 ? '버스' : progress?.currentSegment?.trafficType === 1 ? '지하철' : null;
 
   const hasUnavailableTransitGeometry = mode === 'transit' && Boolean(route?.segments.some((segment) => segment.trafficType !== 3 && !hasActualTransitGeometry(segment) && !isRoadReference(segment)));
   const hasUnavailableWalkingGeometry = mode === 'transit' && Boolean(route?.segments.some(isUnavailableWalkingGeometry));
@@ -525,6 +616,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
         {(['walk', 'transit'] as const).map((value) => <button key={value} onClick={() => changeMode(value)} aria-pressed={mode === value} className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold ${mode === value ? 'bg-neutral-900 text-white shadow-sm' : 'text-neutral-500'}`}>{value === 'walk' ? <Footprints size={13} /> : <Bus size={13} />}{value === 'walk' ? '도보' : '대중교통'}</button>)}
       </div>
       {mode === 'transit' && <div className="mb-3"><p className="mb-1 text-[10px] font-bold text-neutral-500">기본 경로 선호 · 이 기기에 저장</p><div className="grid grid-cols-3 gap-1 rounded-xl bg-neutral-100 p-1" aria-label="기본 경로 선호">{(['fastest', 'least-walking', 'fewest-transfers'] as const).map((preference) => <button key={preference} type="button" onClick={() => changeRoutePreference(preference)} aria-pressed={routePreference === preference} className={`rounded-lg px-1 py-2 text-[10px] font-semibold ${routePreference === preference ? 'bg-white text-blue-700 shadow-sm' : 'text-neutral-500'}`}>{BADGE_LABEL[preference]}</button>)}</div></div>}
+      {mode === 'transit' && <RouteFavoritesPanel direction={direction} favorites={favorites} learningEnabled={learningEnabled} onToggleLearning={toggleLearning} onResetLearning={resetLearning} />}
       <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-neutral-100 p-1" aria-label="출발 기준">
         {(['current', 'saved'] as const).map((value) => <button key={value} type="button" onClick={() => changeStartBasis(value)} disabled={value === 'current' ? !hasCurrentLocation : !hasSavedStart} aria-pressed={startBasis === value} className={`rounded-lg px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${startBasis === value ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}>{value === 'current' ? '현재 위치에서' : '저장한 주소에서'}</button>)}
       </div>
@@ -532,9 +624,12 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
         <p className="flex items-start gap-2"><Navigation className={locationStatus === 'locating' ? 'animate-pulse text-blue-600' : 'text-blue-600'} size={15} /><span><strong className="font-semibold text-neutral-700">출발 · {startBasis === 'current' ? '현재 위치' : '저장한 주소'}</strong><br />{startBasis === 'current' ? locationNotice : savedStartAddress}</span></p>
         <p className="flex items-start gap-2"><MapPin className="text-red-500" size={15} /><span><strong className="font-semibold text-neutral-700">도착지</strong> · {destinationAddress}</span></p>
       </div>
+      {progressNotice && <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900" aria-live="polite"><strong className="block">진행 상황 추정 중</strong>{progressNotice}</div>}
+      {arrivalSuggested && <div className="mb-3 rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-xs text-emerald-900" aria-live="polite"><strong className="block">목적지 근처에 도착했어요</strong>실제로 도착했다면 아래 도착 버튼을 눌러 주세요. 자동으로 기록되지는 않습니다.</div>}
       {route?.estimated && !loading && <div className="mb-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800"><strong className="block">참고용 직선 안내</strong>실제 보행 경로가 아닌 직선거리 기준 예상 안내입니다.</div>}
-      {route && progress && !loading && <div className={`mb-3 rounded-xl border p-3 text-xs ${isOffRoute ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`} aria-live="polite"><div className="flex items-start justify-between gap-3"><div><strong className="block">{isOffRoute ? '선택 경로에서 벗어났어요' : '이동 진행 중'}</strong><span>남은 거리 {formatDistance(progress.remainingDistance)} · ETA 약 {formatMinutes(progress.remainingMinutes)}</span>{progress.source === 'direct-fallback' && <span className="mt-1 block text-[10px]">상세 경로 미제공으로 목적지 직선거리와 기존 ETA를 표시합니다.</span>}</div>{isOffRoute && <button type="button" onClick={rerouteFromCurrentLocation} disabled={rerouting} className="shrink-0 rounded-lg bg-white px-2.5 py-2 text-[11px] font-bold shadow-sm disabled:opacity-50">{rerouting ? '재탐색 중…' : '현재 위치에서 재탐색'}</button>}</div></div>}
-      {mode === 'transit' && route?.candidates && route.candidates.length > 1 && !loading && <div className="mb-3 grid gap-2" aria-label="대중교통 경로 선택">{route.candidates.map((candidate, index) => <button key={candidate.id || index} type="button" onClick={() => selectCandidate(candidate)} aria-pressed={candidate.id === route.id} className={`rounded-xl border p-3 text-left ${candidate.id === route.id ? 'border-blue-500 bg-blue-50' : 'border-neutral-200 bg-white'}`}><span className="flex flex-wrap gap-1">{candidate.intelligence?.badges.map((badge) => <span key={badge} className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">{BADGE_LABEL[badge]}</span>)}</span><span className="mt-1 block text-sm font-bold text-neutral-900">{formatMinutes(candidate.summary.totalTime)} · 도보 {formatDistance(candidate.summary.totalWalk)}</span><span className="text-[11px] text-neutral-500">환승 {candidate.intelligence?.transferCount ?? 0}회</span></button>)}</div>}
+      {route && progress && !loading && <div className={`mb-3 rounded-xl border p-3 text-xs ${isOffRoute ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`} aria-live="polite"><div className="flex items-start justify-between gap-3"><div><strong className="block">{isOffRoute ? '선택 경로에서 벗어났어요' : `${currentModeLabel || '경로'} 구간 진행 중`}</strong><span>목적지까지 확인 가능 거리 {formatDistance(progress.destinationDistance)} · 보정 ETA 약 {formatMinutes(progress.remainingMinutes)}</span>{progress.currentSegment && <span className="mt-1 block">현재 구간 {Math.round(progress.currentSegment.progress * 100)}% · {progress.currentSegment.nextName}까지 {formatDistance(progress.nextTransitionDistance ?? 0)}</span>}{progress.source !== 'route-geometry' && <span className="mt-1 block text-[10px]">상세 geometry가 없어 실제 구간 endpoint 기준 추정 상태입니다.</span>}</div>{isOffRoute && <button type="button" onClick={rerouteFromCurrentLocation} disabled={rerouting} className="shrink-0 rounded-lg bg-white px-2.5 py-2 text-[11px] font-bold shadow-sm disabled:opacity-50">{rerouting ? '재탐색 중…' : '수동 재탐색'}</button>}</div></div>}
+      {mode === 'transit' && recommendationReason && !loading && <p className="mb-2 rounded-lg bg-indigo-50 px-3 py-2 text-[10px] font-semibold text-indigo-700" aria-live="polite"><Sparkles className="mr-1 inline" size={11} />추천 이유: {recommendationReason}</p>}
+      {mode === 'transit' && route?.candidates && route.candidates.length > 1 && !loading && <div className="mb-3 grid gap-2" aria-label="대중교통 경로 선택">{route.candidates.map((candidate, index) => { const signature = routeSignature(candidate.segments); const favorite = favorites.some((item) => item.signature === signature); return <div key={candidate.id || index} className={`flex rounded-xl border ${candidate.id === route.id ? 'border-blue-500 bg-blue-50' : 'border-neutral-200 bg-white'}`}><button type="button" onClick={() => selectCandidate(candidate)} aria-pressed={candidate.id === route.id} className="min-w-0 flex-1 p-3 text-left"><span className="flex flex-wrap gap-1">{candidate.intelligence?.badges.map((badge) => <span key={badge} className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">{BADGE_LABEL[badge]}</span>)}</span><span className="mt-1 block truncate text-[10px] text-neutral-500">{signature}</span><span className="block text-sm font-bold text-neutral-900">{formatMinutes(candidate.summary.totalTime)} · 도보 {formatDistance(candidate.summary.totalWalk)}</span><span className="text-[11px] text-neutral-500">환승 {candidate.intelligence?.transferCount ?? 0}회</span></button><button type="button" onClick={() => toggleFavorite(candidate)} aria-label={`${signature} ${favorite ? '즐겨찾기 삭제' : '즐겨찾기 저장'}`} aria-pressed={favorite} className={`self-stretch px-3 ${favorite ? 'text-amber-500' : 'text-neutral-300'}`}><Bookmark size={17} fill={favorite ? 'currentColor' : 'none'} /></button></div>; })}</div>}
       {route?.intelligence?.warnings.length && !loading ? <div className="mb-3 space-y-1 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900" aria-label="경로 위험 근거">{route.intelligence.warnings.map((warning, index) => <p key={`${warning.kind}-${warning.segmentIndex ?? index}`}><strong>{warning.title}</strong> · {warning.detail}</p>)}</div> : null}
       {route && !loading && (hasUnavailableTransitGeometry || hasUnavailableWalkingGeometry || hasRoadReference) && <div className="mb-3 space-y-1.5 rounded-xl border border-orange-200 bg-orange-50 p-3 text-xs text-orange-900" aria-label="지도 경로 표시 안내">{hasUnavailableTransitGeometry && <p><strong>상세 경로 미제공</strong> · 좌표가 없는 대중교통 구간은 승·하차 지점만 표시합니다.</p>}{hasUnavailableWalkingGeometry && <p><strong>상세 도보 경로 미제공</strong> · 직선 연결선 대신 도보 구간의 승·하차 지점만 표시합니다.</p>}{hasRoadReference && <p className="flex items-center gap-2"><span aria-hidden="true" className="inline-block w-8 border-t-[3px] border-dashed border-orange-500" /><span><strong>도로 기반 참고선</strong> · TMAP 차량 도로 geometry</span></p>}</div>}
       {loading && locationStatus !== 'locating' && <div className="flex items-center gap-2 rounded-xl bg-neutral-50 p-3 text-sm text-neutral-500"><Navigation className="animate-pulse" size={16} />경로를 찾고 있어요</div>}
@@ -550,7 +645,8 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
         const startName = segment.startName || (isFirstTransit ? route.summary.firstStartStation : null);
         const endName = segment.endName || (isLastTransit ? route.summary.lastEndStation : null);
         const isTransfer = segment.transfer || (index > 0 && !isWalk && route.segments[index - 1].trafficType !== 3);
-        return <li key={`${segment.label}-${index}`} className="relative flex gap-3 pb-5 last:pb-1">{index < route.segments.length - 1 && <span aria-hidden="true" className="absolute left-[15px] top-8 h-[calc(100%-1rem)] w-px bg-neutral-200" />}<span className={`relative z-10 grid size-8 shrink-0 place-items-center rounded-full ring-4 ring-white ${segment.trafficType === 1 ? 'bg-emerald-100 text-emerald-700' : segment.trafficType === 2 ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'}`}>{segment.trafficType === 1 ? <TrainFront size={15} /> : segment.trafficType === 2 ? <Bus size={15} /> : <Footprints size={15} />}</span><div className="min-w-0 flex-1 rounded-xl border border-neutral-100 bg-neutral-50 p-3"><div className="flex items-start justify-between gap-2"><div>{stage && <p className="mb-0.5 text-[10px] font-bold tracking-wide text-blue-600">{stage}</p>}<p className="text-sm font-semibold text-neutral-800">{segment.laneName || segment.label}</p>{isTransfer && <p className="mt-0.5 text-[11px] font-semibold text-blue-600">환승 구간</p>}</div><span className="shrink-0 text-[11px] text-neutral-400">{formatClock(startsAt)}–{formatClock(endsAt)}</span></div>{isWalk ? <><p className="mt-1 text-xs text-neutral-600">도보 {formatDistance(segment.distance)} · {formatSteps(segment.distance)}</p>{segment.distance >= LONG_WALK_WARNING_M && <p className="mt-2 flex gap-1.5 rounded-md bg-amber-100 px-2 py-1.5 text-[11px] font-semibold text-amber-900"><AlertCircle className="mt-0.5 shrink-0" size={12} />장거리 도보 구간입니다. 이동 가능 여부와 대체 교통편을 확인하세요.</p>}</> : <div className="mt-2 space-y-1 text-xs text-neutral-600"><p><strong className="font-semibold text-neutral-700">승차</strong> {startName || '승차 지점 확인 필요'}</p><p><strong className="font-semibold text-neutral-700">하차</strong> {endName || '하차 지점 확인 필요'}</p>{segment.instruction && <p className="pt-1 text-[11px] text-neutral-500">{segment.instruction}</p>}{!hasActualTransitGeometry(segment) && !isRoadReference(segment) && <p className="pt-1 text-[11px] font-semibold text-orange-700">지도 상세 경로 미제공</p>}</div>}<p className="mt-1 flex items-center gap-1 text-[11px] text-neutral-500"><Clock3 size={11} />예상 {formatMinutes(segment.sectionTime)} · {formatDistance(segment.distance)}</p>{segment.congestion !== undefined && segment.congestion !== null && String(segment.congestion).trim() && <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-800">제공된 혼잡 정보: {String(segment.congestion)}</p>}</div></li>;
+        const segmentProgress = progress?.currentSegment?.index === index ? progress.currentSegment : null;
+        return <li key={`${segment.label}-${index}`} className="relative flex gap-3 pb-5 last:pb-1">{index < route.segments.length - 1 && <span aria-hidden="true" className="absolute left-[15px] top-8 h-[calc(100%-1rem)] w-px bg-neutral-200" />}<span className={`relative z-10 grid size-8 shrink-0 place-items-center rounded-full ring-4 ring-white ${segment.trafficType === 1 ? 'bg-emerald-100 text-emerald-700' : segment.trafficType === 2 ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'}`}>{segment.trafficType === 1 ? <TrainFront size={15} /> : segment.trafficType === 2 ? <Bus size={15} /> : <Footprints size={15} />}</span><div className="min-w-0 flex-1 rounded-xl border border-neutral-100 bg-neutral-50 p-3"><div className="flex items-start justify-between gap-2"><div>{stage && <p className="mb-0.5 text-[10px] font-bold tracking-wide text-blue-600">{stage}</p>}<p className="text-sm font-semibold text-neutral-800">{segment.laneName || segment.label}</p>{isTransfer && <p className="mt-0.5 text-[11px] font-semibold text-blue-600">환승 구간</p>}</div><span className="shrink-0 text-[11px] text-neutral-400">{formatClock(startsAt)}–{formatClock(endsAt)}</span></div>{segmentProgress && <p className="mt-2 rounded-md bg-emerald-100 px-2 py-1.5 text-[11px] font-semibold text-emerald-900">현재 구간 {Math.round(segmentProgress.progress * 100)}% · {segmentProgress.nextName}까지 {formatDistance(segmentProgress.remainingDistance)}{segmentProgress.estimated ? ' (endpoint 기준 추정)' : ''}</p>}{isWalk ? <><p className="mt-1 text-xs text-neutral-600">도보 {formatDistance(segment.distance)} · {formatSteps(segment.distance)}</p>{segment.distance >= LONG_WALK_WARNING_M && <p className="mt-2 flex gap-1.5 rounded-md bg-amber-100 px-2 py-1.5 text-[11px] font-semibold text-amber-900"><AlertCircle className="mt-0.5 shrink-0" size={12} />장거리 도보 구간입니다. 이동 가능 여부와 대체 교통편을 확인하세요.</p>}</> : <div className="mt-2 space-y-1 text-xs text-neutral-600"><p><strong className="font-semibold text-neutral-700">승차</strong> {startName || '승차 지점 확인 필요'}</p><p><strong className="font-semibold text-neutral-700">하차</strong> {endName || '하차 지점 확인 필요'}</p>{segment.instruction && <p className="pt-1 text-[11px] text-neutral-500">{segment.instruction}</p>}{!hasActualTransitGeometry(segment) && !isRoadReference(segment) && <p className="pt-1 text-[11px] font-semibold text-orange-700">지도 상세 경로 미제공</p>}</div>}<p className="mt-1 flex items-center gap-1 text-[11px] text-neutral-500"><Clock3 size={11} />예상 {formatMinutes(segment.sectionTime)} · {formatDistance(segment.distance)}</p>{segment.congestion !== undefined && segment.congestion !== null && String(segment.congestion).trim() && <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-800">제공된 혼잡 정보: {String(segment.congestion)}</p>}</div></li>;
       })}</ol>{route.summary.payment > 0 && <p className="mt-3 text-right text-xs text-neutral-500">예상 요금 {route.summary.payment.toLocaleString()}원</p>}<section className="mt-4 rounded-2xl border border-violet-200 bg-violet-50/70" aria-labelledby="route-comment-title"><button type="button" onClick={() => setCommentOpen((open) => !open)} aria-expanded={commentOpen} aria-controls="route-comment-content" className="flex w-full items-center gap-2 p-3 text-left"><span className="grid size-8 place-items-center rounded-full bg-violet-100 text-violet-700"><Sparkles size={16} /></span><span id="route-comment-title" className="flex-1 text-sm font-bold text-violet-950">AI 경로 코멘트</span>{commentOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>{commentOpen && <div id="route-comment-content" className="space-y-3 border-t border-violet-100 p-3" aria-live="polite">{commentLoading && <p className="flex items-center gap-2 text-xs text-violet-700"><Sparkles className="animate-pulse" size={14} />실제 경로를 분석하고 있어요.</p>}{commentError && <p className="flex gap-2 text-xs text-amber-800"><AlertCircle className="shrink-0" size={14} />{commentError}</p>}{routeComment && !commentLoading && <><div><p className="mb-1 text-[11px] font-bold text-violet-800">핵심 요약</p><p className="text-xs leading-5 text-neutral-700">{routeComment.summary}</p></div><div><p className="mb-1 text-[11px] font-bold text-violet-800">주의 구간</p><p className="text-xs leading-5 text-neutral-700">{routeComment.caution}</p></div><div><p className="mb-1 text-[11px] font-bold text-violet-800">지금 할 일</p><ul className="space-y-1 text-xs leading-5 text-neutral-700">{routeComment.actions.map((action, index) => <li key={`${action}-${index}`} className="flex gap-2"><span aria-hidden="true" className="font-bold text-violet-500">{index + 1}.</span><span>{action}</span></li>)}</ul></div><p className="text-[10px] text-neutral-400">{routeComment.source === 'ai' ? 'AI가 경로 데이터와 현재 시각을 바탕으로 작성했어요.' : '경로 데이터 기반 자동 분석이에요.'}</p></>}</div>}</section></div>}
     </aside>
   );

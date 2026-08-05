@@ -1,47 +1,9 @@
 'use client';
-
-import { useEffect, useMemo } from 'react';
-import { AlertTriangle, CalendarDays, Lightbulb, TrendingUp } from 'lucide-react';
-import TopBar from '@/components/TopBar';
-import { qualitySummary } from '@/lib/dataQuality';
-import { computeMonthlyStats, formatMinutesOfDay, getStatsFallbackComment } from '@/lib/stats';
-import { useAppData } from '@/lib/useAppData';
-import { loadWorkSchedule, useStore, workTimeToMinutes } from '@/lib/store';
-
-function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return <div className="card p-5"><p className="text-xs text-neutral-500">{label}</p><p className="mt-1 text-2xl font-semibold text-neutral-900">{value}</p>{sub && <p className="mt-1 text-xs text-neutral-400">{sub}</p>}</div>;
-}
-
-export default function StatsPage() {
-  const { user, records, loading } = useAppData();
-  const workSchedule = useStore((state) => state.workSchedule);
-  const setWorkSchedule = useStore((state) => state.setWorkSchedule);
-  const now = useMemo(() => new Date(), []);
-  useEffect(() => { setWorkSchedule(loadWorkSchedule(user?.id)); }, [setWorkSchedule, user?.id]);
-  const workStartMinutes = workTimeToMinutes(workSchedule.startTime);
-  const stats = useMemo(() => computeMonthlyStats(records, now, workStartMinutes), [records, now, workStartMinutes]);
-  const issues = qualitySummary(stats.quality);
-  if (loading) return null;
-  return <div className="flex min-h-screen flex-col">
-    <TopBar title="통계" subtitle={`${now.getMonth() + 1}월 기록 리포트`} />
-    <div className="flex-1 p-4 md:p-8"><div className="mx-auto max-w-4xl space-y-4">
-      {!user ? <div className="card p-8 text-sm text-neutral-500">먼저 게임을 시작해 주세요.</div> : <>
-        <section className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-5">
-          <p className="text-xs font-semibold text-blue-600">데이터 기반 코치</p><p className="mt-2 text-sm font-medium leading-6 text-neutral-800">{getStatsFallbackComment(stats)}</p>
-        </section>
-        {issues.length > 0 && <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-900"><AlertTriangle className="mt-0.5 shrink-0" size={15}/><p><strong>통계·AI 입력에서 제외:</strong> {issues.join(', ')}. 잘못된 기록이 추천에 영향을 주지 않도록 제외했어요.</p></div>}
-        <section className="card p-5">
-          <div className="flex items-center gap-2"><CalendarDays size={17} className="text-blue-600"/><h2 className="text-sm font-semibold">최근 7일 리포트</h2></div>
-          {stats.weekly.sampleSize ? <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <div className="rounded-xl bg-neutral-50 p-4 text-sm"><p className="text-xs text-neutral-500">평균 · 변동성</p><p className="mt-1 font-semibold">평균 {stats.weekly.averageMinutes}분 · ±{stats.weekly.variabilityMinutes}분</p><p className="mt-2 text-xs text-neutral-500">가장 안정적인 요일: {stats.weekly.stableWeekday ?? '판단 보류'}</p></div>
-            <div className="rounded-xl bg-neutral-50 p-4 text-sm"><p className="flex items-center gap-1 text-xs text-neutral-500"><TrendingUp size={13}/>지각 원인 후보</p><p className="mt-1 font-medium">{stats.weekly.lateCauseCandidates.join(', ') || '뚜렷한 후보 없음'}</p><p className="mt-2 flex items-start gap-1 text-xs text-blue-700"><Lightbulb size={13} className="mt-0.5 shrink-0"/>{stats.weekly.actions.join(' · ')}</p></div>
-          </div> : <p className="mt-4 text-sm text-neutral-500">최근 7일의 신뢰 가능한 완료 기록이 아직 없어요.</p>}
-        </section>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-          <Tile label="출근 완료" value={`${stats.commuteArrivals.length}건`}/><Tile label="퇴근 완료" value={`${stats.returnArrivals.length}건`}/><Tile label="왕복 기록" value={`${stats.roundTripDays}일`}/>
-          <Tile label="지각률" value={stats.lateRate === null ? '-' : `${stats.lateRate}%`} sub={`${formatMinutesOfDay(stats.workStartMinutes)} 기준`}/><Tile label="평균 출근" value={stats.avgCommuteDuration === null ? '-' : `${stats.avgCommuteDuration}분`}/><Tile label="평균 퇴근" value={stats.avgReturnDuration === null ? '-' : `${stats.avgReturnDuration}분`}/>
-        </div>
-      </>}
-    </div></div>
-  </div>;
-}
+import { useEffect,useMemo,useState } from 'react';
+/* eslint-disable react-hooks/exhaustive-deps -- version refreshes localStorage-backed exclusions */
+import { AlertTriangle,ChevronLeft,ChevronRight,Download } from 'lucide-react';
+import TopBar from '@/components/TopBar';import StatsCharts from '@/components/StatsCharts';
+import { qualitySummary } from '@/lib/dataQuality';import { comparisonPercent,computePeriodStats,getStatsFallbackComment,StatsPeriod } from '@/lib/stats';import { useAppData } from '@/lib/useAppData';import { loadWorkSchedule,useStore } from '@/lib/store';import { loadExcludedRecordIds,RECORD_OVERRIDES_EVENT } from '@/lib/recordOverrides';
+const PERIODS:{id:StatsPeriod;label:string}[]=[{id:'week',label:'주'},{id:'month',label:'월'},{id:'year',label:'연'}];
+function Tile({label,value,change}:{label:string;value:string;change:number|null}){return <div className="card p-5"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-2xl font-bold">{value}</p><p className={`mt-1 text-xs ${change===null?'text-slate-400':change>0?'text-rose-600':'text-emerald-600'}`}>{change===null?'이전 기간 비교 없음':`이전 기간 대비 ${change>0?'+':''}${change}%`}</p></div>}
+export default function StatsPage(){const{user,records,loading}=useAppData();const schedule=useStore(s=>s.workSchedule),setSchedule=useStore(s=>s.setWorkSchedule);const[period,setPeriod]=useState<StatsPeriod>('month'),[offset,setOffset]=useState(0),[version,setVersion]=useState(0);useEffect(()=>setSchedule(loadWorkSchedule(user?.id)),[setSchedule,user?.id]);useEffect(()=>{const update=()=>setVersion(v=>v+1);window.addEventListener(RECORD_OVERRIDES_EVENT,update);window.addEventListener('storage',update);return()=>{window.removeEventListener(RECORD_OVERRIDES_EVENT,update);window.removeEventListener('storage',update)}},[]);const anchor=useMemo(()=>{const d=new Date();if(period==='week')d.setDate(d.getDate()+offset*7);else if(period==='month')d.setMonth(d.getMonth()+offset);else d.setFullYear(d.getFullYear()+offset);return d},[period,offset]);const excluded=useMemo(()=>loadExcludedRecordIds(user?.id),[user?.id,version]);const stats=useMemo(()=>computePeriodStats(records,period,anchor,schedule,excluded),[records,period,anchor,schedule,excluded]);const previous=useMemo(()=>computePeriodStats(records,period,stats.previousRange.start,schedule,excluded),[records,period,stats.previousRange.start,schedule,excluded]);const exportCsv=()=>{const warning='이 파일에는 출퇴근 시각 등 개인정보가 포함될 수 있습니다.';if(!window.confirm(`${warning}\n개인 기기에만 안전하게 저장하세요. 계속할까요?`))return;const header=['기록 ID','날짜','유형','시작 시각','종료 시각','이동시간(분)'];const rows=stats.monthRecords.map(r=>[r.id,r.date,r.type,r.start_time??'',r.end_time??'',r.duration_minutes??'']);const csv='\uFEFF'+[header,...rows].map(row=>row.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\r\n');const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=`commute-${period}-${stats.range.start.toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(url)};if(loading)return null;const issues=qualitySummary(stats.quality);return <div className="flex min-h-screen flex-col"><TopBar title="통계" subtitle="출퇴근 기록 리포트"/><main className="flex-1 p-4 md:p-8"><div className="mx-auto max-w-5xl space-y-4">{!user?<div className="card p-8 text-sm text-slate-500">먼저 게임을 시작해 주세요.</div>:<><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex rounded-xl bg-slate-100 p-1">{PERIODS.map(p=><button key={p.id} onClick={()=>{setPeriod(p.id);setOffset(0)}} className={`rounded-lg px-4 py-2 text-sm font-semibold ${period===p.id?'bg-white text-blue-700 shadow-sm':'text-slate-500'}`}>{p.label}</button>)}</div><div className="flex items-center gap-2"><button aria-label="이전 기간" onClick={()=>setOffset(v=>v-1)} className="rounded-lg border p-2"><ChevronLeft size={16}/></button><strong className="min-w-32 text-center text-sm">{stats.range.label}</strong><button aria-label="다음 기간" disabled={offset>=0} onClick={()=>setOffset(v=>v+1)} className="rounded-lg border p-2 disabled:opacity-30"><ChevronRight size={16}/></button></div><button onClick={exportCsv} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold"><Download size={15}/>CSV 내보내기</button></div><p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><AlertTriangle size={14} className="mr-1 inline"/>CSV에는 출퇴근 시각 등 개인정보가 포함될 수 있으니 공유와 보관에 주의하세요.</p><section className="rounded-2xl border border-blue-100 bg-blue-50 p-5 text-sm">{getStatsFallbackComment(stats)}</section>{issues.length>0&&<p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800">자동 제외: {issues.join(', ')}</p>}{excluded.size>0&&<p className="text-xs text-slate-500">캘린더에서 직접 제외한 기록 {excluded.size}건은 통계에 포함되지 않습니다.</p>}<div className="grid grid-cols-2 gap-4 md:grid-cols-4"><Tile label="출근 완료" value={`${stats.commuteArrivals.length}건`} change={comparisonPercent(stats.commuteArrivals.length,previous.commuteArrivals.length)}/><Tile label="평균 출근" value={stats.avgCommuteDuration===null?'-':`${stats.avgCommuteDuration}분`} change={comparisonPercent(stats.avgCommuteDuration,previous.avgCommuteDuration)}/><Tile label="지각률" value={stats.lateRate===null?'-':`${stats.lateRate}%`} change={comparisonPercent(stats.lateRate,previous.lateRate)}/><Tile label="왕복" value={`${stats.roundTripDays}일`} change={comparisonPercent(stats.roundTripDays,previous.roundTripDays)}/></div><StatsCharts points={stats.trend} weather={stats.weatherBreakdown} transport={stats.transportBreakdown}/></>}</div></main></div>}
