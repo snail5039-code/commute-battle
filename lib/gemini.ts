@@ -7,6 +7,89 @@ import { IDLE_CHAT_FALLBACK, TimeSegment, TIME_SEGMENT_LABELS } from './petMessa
 const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY ?? '');
 const MODEL = 'gemini-3.5-flash';
 
+export interface RouteCommentSegment {
+  trafficType: number;
+  label: string;
+  distance: number;
+  sectionTime: number;
+  startName?: string | null;
+  endName?: string | null;
+  laneName?: string | null;
+  congestion?: string | number | null;
+  transfer?: boolean;
+}
+
+export interface RouteComment {
+  summary: string;
+  caution: string;
+  actions: string[];
+  source: 'ai' | 'route';
+}
+
+interface RouteCommentInput {
+  segments: RouteCommentSegment[];
+  totalTime: number;
+  totalDistance: number;
+  totalWalk: number;
+  departureTime: Date;
+}
+
+const routeCommentCache = new Map<string, Promise<RouteComment>>();
+
+function deterministicRouteComment(input: RouteCommentInput): RouteComment {
+  const transit = input.segments.filter((segment) => segment.trafficType !== 3);
+  const walks = input.segments.filter((segment) => segment.trafficType === 3);
+  const longestWalk = walks.reduce<RouteCommentSegment | null>((longest, segment) => !longest || segment.distance > longest.distance ? segment : longest, null);
+  const transfers = Math.max(0, transit.length - 1);
+  const hour = input.departureTime.getHours();
+  const timeContext = hour < 7 ? '이른 시간대' : hour < 10 ? '오전 이동 시간대' : hour < 17 ? '낮 시간대' : hour < 20 ? '저녁 이동 시간대' : '늦은 시간대';
+  const routeNames = transit.map((segment) => segment.laneName || segment.label).filter(Boolean);
+  const summary = transit.length
+    ? `${timeContext} 기준, ${routeNames.join(' → ')} 순서로 이동하는 약 ${Math.round(input.totalTime)}분 경로예요. 도보는 총 ${Math.round(input.totalWalk)}m이고 환승은 ${transfers}회로 예상돼요.`
+    : `${timeContext} 기준, 총 ${Math.round(input.totalDistance)}m를 약 ${Math.round(input.totalTime)}분 동안 걷는 경로예요. 예상 걸음 수는 약 ${Math.round(input.totalWalk / 0.75).toLocaleString('ko-KR')}보예요.`;
+  const congested = input.segments.find((segment) => segment.congestion !== undefined && segment.congestion !== null && String(segment.congestion).trim() !== '');
+  const caution = congested
+    ? `${congested.laneName || congested.label} 구간에 제공된 혼잡 정보(${String(congested.congestion)})가 있어 여유 있게 이동하세요.`
+    : longestWalk && longestWalk.distance >= 600
+      ? `가장 긴 도보 구간이 ${Math.round(longestWalk.distance)}m(약 ${Math.round(longestWalk.distance / 0.75).toLocaleString('ko-KR')}보)라 신발과 날씨를 확인하면 좋아요.`
+      : transfers > 0 ? `환승 ${transfers}회가 있어 하차 직전에 다음 승차 위치를 확인하세요.` : '별도 혼잡 정보는 제공되지 않았어요. 승차 전 안내 전광판과 현장 상황을 확인하세요.';
+  const actions = [
+    transit[0]?.startName ? `${transit[0].startName} 승차 위치를 먼저 확인하세요.` : '첫 이동 구간의 출발 방향을 지도에서 확인하세요.',
+    transfers > 0 ? '환승 직전 노선명과 다음 승차 지점을 다시 확인하세요.' : '출발 전에 전체 소요 시간과 도착 지점을 확인하세요.',
+    longestWalk && longestWalk.distance >= 300 ? `도보 ${Math.round(longestWalk.distance)}m 구간을 위해 이동 중 화면을 보지 말고 안전하게 걸으세요.` : '이동 중에는 주변을 살피고 안전한 보행로를 이용하세요.',
+  ];
+  return { summary, caution, actions, source: 'route' };
+}
+
+export function generateRouteComment(input: RouteCommentInput): Promise<RouteComment> {
+  const fallback = deterministicRouteComment(input);
+  const routeKey = JSON.stringify({
+    segments: input.segments.map(({ trafficType, label, distance, sectionTime, startName, endName, laneName, congestion, transfer }) => ({ trafficType, label, distance, sectionTime, startName, endName, laneName, congestion, transfer })),
+    totalTime: input.totalTime,
+    departureHour: input.departureTime.getHours(),
+  });
+  const cached = routeCommentCache.get(routeKey);
+  if (cached) return cached;
+
+  const request: Promise<RouteComment> = (async () => {
+    if (!process.env.NEXT_PUBLIC_GEMINI_API_KEY) return fallback;
+    try {
+      const prompt = `통근 경로 코치로서 아래 실제 경로와 현재 시각만 근거로 JSON을 작성하세요. 확인되지 않은 실시간 정체를 추측하지 마세요. congestion 값이 있는 구간만 혼잡을 언급하세요. 행동 추천은 2~3개로 작성하세요.\n현재 시각: ${input.departureTime.toLocaleString('ko-KR')}\n총 시간: ${input.totalTime}분, 총 거리: ${input.totalDistance}m, 총 도보: ${input.totalWalk}m\n구간: ${JSON.stringify(input.segments)}\n형식: {"summary":"핵심 요약","caution":"주의 구간","actions":["행동 추천"]}`;
+      const text = (await model().generateContent(prompt)).response.text();
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) return fallback;
+      const parsed = JSON.parse(match[0]) as Partial<RouteComment>;
+      if (!parsed.summary || !parsed.caution || !Array.isArray(parsed.actions) || parsed.actions.length < 2) return fallback;
+      return { summary: parsed.summary, caution: parsed.caution, actions: parsed.actions.slice(0, 3), source: 'ai' };
+    } catch (error) {
+      console.error('Gemini Route Comment Error:', error);
+      return fallback;
+    }
+  })();
+  routeCommentCache.set(routeKey, request);
+  return request;
+}
+
 interface RouteGuideInput {
   home_address: string;
   work_address: string;

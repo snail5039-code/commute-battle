@@ -1,16 +1,28 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, Bus, Crosshair, Footprints, MapPin, Navigation, TrainFront, X } from 'lucide-react';
+import { AlertCircle, Bus, ChevronDown, ChevronUp, Clock3, Crosshair, Footprints, MapPin, Navigation, Sparkles, TrainFront, X } from 'lucide-react';
 import { CommuteRecord, User } from '@/lib/types';
 import { haversineDistance, LatLng } from '@/lib/geo';
 import { geocodeAddress, loadKakaoMapSdk } from '@/lib/kakaoMap';
+import { generateRouteComment, RouteComment } from '@/lib/gemini';
 
 interface CommuteMapViewProps { user: User; activeRecord: CommuteRecord; onArrive: () => Promise<void>; onClose: () => void }
 type TravelMode = 'walk' | 'transit';
 type StartBasis = 'current' | 'saved';
 type LocationStatus = 'locating' | 'tracking' | 'fallback' | 'unavailable';
-interface RouteSegment { trafficType: number; label: string; distance: number; sectionTime: number; points: LatLng[] }
+interface RouteSegment {
+  trafficType: number;
+  label: string;
+  distance: number;
+  sectionTime: number;
+  points: LatLng[];
+  startName?: string | null;
+  endName?: string | null;
+  laneName?: string | null;
+  congestion?: string | number | null;
+  transfer?: boolean;
+}
 interface RouteResponse {
   summary: { totalTime: number; totalDistance: number; totalWalk: number; payment: number; firstStartStation: string | null; lastEndStation: string | null };
   segments: RouteSegment[];
@@ -39,6 +51,8 @@ function formatMinutes(minutes: number) {
 }
 
 function formatDistance(metres: number) { return metres < 1000 ? `${Math.round(metres)}m` : `${(metres / 1000).toFixed(1)}km`; }
+function formatSteps(metres: number) { return `약 ${Math.max(0, Math.round(metres / 0.75)).toLocaleString('ko-KR')}보`; }
+function formatClock(date: Date) { return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }); }
 function coordinates(position: GeolocationPosition): LatLng { return { lat: position.coords.latitude, lng: position.coords.longitude }; }
 
 function locationErrorMessage(error: GeolocationPositionError) {
@@ -119,6 +133,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   const [startBasis, setStartBasis] = useState<StartBasis>('current');
   const [routePoints, setRoutePoints] = useState<{ start: LatLng; end: LatLng } | null>(null);
   const [route, setRoute] = useState<RouteResponse | null>(null);
+  const [routeDepartureAt, setRouteDepartureAt] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [mapReady, setMapReady] = useState(false);
   const [hasCurrentLocation, setHasCurrentLocation] = useState(false);
@@ -129,6 +144,10 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   const [savedStartAddress, setSavedStartAddress] = useState('저장된 출발지 주소 확인 중');
   const [error, setError] = useState<string | null>(null);
   const [arriving, setArriving] = useState(false);
+  const [routeComment, setRouteComment] = useState<RouteComment | null>(null);
+  const [commentLoading, setCommentLoading] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
+  const [commentOpen, setCommentOpen] = useState(true);
   const [, tick] = useState(0);
 
   const clearRoute = useCallback(() => {
@@ -295,6 +314,10 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
     showFixedMarkers();
     requestRoute(start, end, selectedMode).then((data) => {
       if (requestId !== requestIdRef.current || selectedMode !== mode) return;
+      setRouteDepartureAt(Date.now());
+      setRouteComment(null);
+      setCommentLoading(true);
+      setCommentError(null);
       setRoute(data);
       drawRoute(data, selectedMode);
     }).catch((reason) => {
@@ -305,6 +328,24 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   }, [clearRoute, drawRoute, mapReady, mode, routePoints, showFixedMarkers]);
 
   useEffect(() => { const timer = setInterval(() => tick((value) => value + 1), 1000); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    if (!route) return;
+    let cancelled = false;
+    generateRouteComment({
+      segments: route.segments,
+      totalTime: route.summary.totalTime,
+      totalDistance: route.summary.totalDistance,
+      totalWalk: route.summary.totalWalk,
+      departureTime: new Date(routeDepartureAt),
+    }).then((comment) => {
+      if (!cancelled) setRouteComment(comment);
+    }).catch(() => {
+      if (!cancelled) setCommentError('경로 코멘트를 준비하지 못했어요. 잠시 후 경로를 다시 확인해 주세요.');
+    }).finally(() => {
+      if (!cancelled) setCommentLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [route, routeDepartureAt]);
   const arrive = async () => { setArriving(true); try { await onArrive(); } finally { setArriving(false); } };
   const recenter = () => {
     if (!currentLocationRef.current) return;
@@ -349,7 +390,18 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
       {route?.estimated && !loading && <div className="mb-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800"><strong className="block">참고용 직선 안내</strong>실제 보행 경로가 아닌 직선거리 기준 예상 안내입니다.</div>}
       {loading && locationStatus !== 'locating' && <div className="flex items-center gap-2 rounded-xl bg-neutral-50 p-3 text-sm text-neutral-500"><Navigation className="animate-pulse" size={16} />경로를 찾고 있어요</div>}
       {error && !loading && <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"><div className="flex gap-2"><AlertCircle className="mt-0.5 shrink-0" size={16} /><div><strong className="block text-xs">이 경로를 표시할 수 없어요</strong><span>{error}</span></div></div><button onClick={() => changeMode(mode === 'walk' ? 'transit' : 'walk')} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold shadow-sm">{mode === 'walk' ? '대중교통 대안 보기' : '도보 대안 보기'}</button></div>}
-      {route && !loading && <div className="min-h-0 flex-1 overflow-y-auto"><div className="flex items-end justify-between border-b border-neutral-100 pb-4"><div><p className="text-xs text-neutral-500">예상 소요 시간</p><strong className="text-2xl text-neutral-900">{formatMinutes(route.summary.totalTime)}</strong></div><span className="text-sm text-neutral-500">{formatDistance(route.summary.totalDistance)}</span></div><ol className="mt-3 space-y-2">{route.segments.map((segment, index) => <li key={`${segment.label}-${index}`} className="flex items-center gap-3 rounded-xl bg-neutral-50 p-3"><span className={`grid size-8 shrink-0 place-items-center rounded-full ${segment.trafficType === 1 ? 'bg-emerald-100 text-emerald-700' : segment.trafficType === 2 ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'}`}>{segment.trafficType === 1 ? <TrainFront size={15} /> : segment.trafficType === 2 ? <Bus size={15} /> : <Footprints size={15} />}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-neutral-800">{segment.label}</p><p className="text-xs text-neutral-500">{formatMinutes(segment.sectionTime)} · {formatDistance(segment.distance)}</p></div></li>)}</ol>{route.summary.payment > 0 && <p className="mt-3 text-right text-xs text-neutral-500">예상 요금 {route.summary.payment.toLocaleString()}원</p>}</div>}
+      {route && !loading && <div className="min-h-0 flex-1 overflow-y-auto pr-1"><div className="flex items-end justify-between border-b border-neutral-100 pb-4"><div><p className="text-xs text-neutral-500">예상 소요 시간</p><strong className="text-2xl text-neutral-900">{formatMinutes(route.summary.totalTime)}</strong></div><span className="text-sm text-neutral-500">{formatDistance(route.summary.totalDistance)}</span></div><ol className="mt-4" aria-label="상세 이동 경로">{route.segments.map((segment, index) => {
+        const elapsed = route.segments.slice(0, index).reduce((sum, item) => sum + item.sectionTime, 0);
+        const startsAt = new Date(routeDepartureAt + elapsed * 60000);
+        const endsAt = new Date(startsAt.getTime() + segment.sectionTime * 60000);
+        const isWalk = segment.trafficType === 3;
+        const isFirstTransit = !isWalk && !route.segments.slice(0, index).some((item) => item.trafficType !== 3);
+        const isLastTransit = !isWalk && !route.segments.slice(index + 1).some((item) => item.trafficType !== 3);
+        const startName = segment.startName || (isFirstTransit ? route.summary.firstStartStation : null);
+        const endName = segment.endName || (isLastTransit ? route.summary.lastEndStation : null);
+        const isTransfer = segment.transfer || (index > 0 && !isWalk && route.segments[index - 1].trafficType !== 3);
+        return <li key={`${segment.label}-${index}`} className="relative flex gap-3 pb-5 last:pb-1">{index < route.segments.length - 1 && <span aria-hidden="true" className="absolute left-[15px] top-8 h-[calc(100%-1rem)] w-px bg-neutral-200" />}<span className={`relative z-10 grid size-8 shrink-0 place-items-center rounded-full ring-4 ring-white ${segment.trafficType === 1 ? 'bg-emerald-100 text-emerald-700' : segment.trafficType === 2 ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'}`}>{segment.trafficType === 1 ? <TrainFront size={15} /> : segment.trafficType === 2 ? <Bus size={15} /> : <Footprints size={15} />}</span><div className="min-w-0 flex-1 rounded-xl border border-neutral-100 bg-neutral-50 p-3"><div className="flex items-start justify-between gap-2"><div><p className="text-sm font-semibold text-neutral-800">{segment.laneName || segment.label}</p>{isTransfer && <p className="mt-0.5 text-[11px] font-semibold text-blue-600">환승 구간</p>}</div><span className="shrink-0 text-[11px] text-neutral-400">{formatClock(startsAt)}–{formatClock(endsAt)}</span></div>{isWalk ? <p className="mt-1 text-xs text-neutral-600">도보 {formatDistance(segment.distance)} · {formatSteps(segment.distance)}</p> : <div className="mt-2 space-y-1 text-xs text-neutral-600"><p><strong className="font-semibold text-neutral-700">승차</strong> {startName || '승차 지점 확인 필요'}</p><p><strong className="font-semibold text-neutral-700">하차</strong> {endName || '하차 지점 확인 필요'}</p></div>}<p className="mt-1 flex items-center gap-1 text-[11px] text-neutral-500"><Clock3 size={11} />예상 {formatMinutes(segment.sectionTime)} · {formatDistance(segment.distance)}</p>{segment.congestion !== undefined && segment.congestion !== null && String(segment.congestion).trim() && <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-800">제공된 혼잡 정보: {String(segment.congestion)}</p>}</div></li>;
+      })}</ol>{route.summary.payment > 0 && <p className="mt-3 text-right text-xs text-neutral-500">예상 요금 {route.summary.payment.toLocaleString()}원</p>}<section className="mt-4 rounded-2xl border border-violet-200 bg-violet-50/70" aria-labelledby="route-comment-title"><button type="button" onClick={() => setCommentOpen((open) => !open)} aria-expanded={commentOpen} aria-controls="route-comment-content" className="flex w-full items-center gap-2 p-3 text-left"><span className="grid size-8 place-items-center rounded-full bg-violet-100 text-violet-700"><Sparkles size={16} /></span><span id="route-comment-title" className="flex-1 text-sm font-bold text-violet-950">AI 경로 코멘트</span>{commentOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>{commentOpen && <div id="route-comment-content" className="space-y-3 border-t border-violet-100 p-3" aria-live="polite">{commentLoading && <p className="flex items-center gap-2 text-xs text-violet-700"><Sparkles className="animate-pulse" size={14} />실제 경로를 분석하고 있어요.</p>}{commentError && <p className="flex gap-2 text-xs text-amber-800"><AlertCircle className="shrink-0" size={14} />{commentError}</p>}{routeComment && !commentLoading && <><div><p className="mb-1 text-[11px] font-bold text-violet-800">핵심 요약</p><p className="text-xs leading-5 text-neutral-700">{routeComment.summary}</p></div><div><p className="mb-1 text-[11px] font-bold text-violet-800">주의 구간</p><p className="text-xs leading-5 text-neutral-700">{routeComment.caution}</p></div><div><p className="mb-1 text-[11px] font-bold text-violet-800">지금 할 일</p><ul className="space-y-1 text-xs leading-5 text-neutral-700">{routeComment.actions.map((action, index) => <li key={`${action}-${index}`} className="flex gap-2"><span aria-hidden="true" className="font-bold text-violet-500">{index + 1}.</span><span>{action}</span></li>)}</ul></div><p className="text-[10px] text-neutral-400">{routeComment.source === 'ai' ? 'AI가 경로 데이터와 현재 시각을 바탕으로 작성했어요.' : '경로 데이터 기반 자동 분석이에요.'}</p></>}</div>}</section></div>}
     </aside>
   );
 

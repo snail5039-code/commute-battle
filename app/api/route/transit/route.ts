@@ -16,8 +16,38 @@ class ProviderError extends Error {
 }
 
 interface Point { lat: number; lng: number }
-interface Segment { trafficType: number; label: string; distance: number; sectionTime: number; points: Point[] }
-interface OdsaySubPath { trafficType: number; distance?: number; sectionTime?: number; startX?: number; startY?: number; endX?: number; endY?: number; lane?: { busNo?: string; name?: string }[] }
+interface Segment {
+  trafficType: number;
+  providerTrafficType?: number | null;
+  label: string;
+  instruction?: string;
+  startName?: string | null;
+  endName?: string | null;
+  routeName?: string | null;
+  stationCount?: number | null;
+  transferIndex?: number | null;
+  way?: string | null;
+  door?: string | null;
+  distance: number;
+  sectionTime: number;
+  points: Point[];
+}
+interface OdsaySubPath {
+  trafficType: number;
+  distance?: number;
+  sectionTime?: number;
+  startName?: string;
+  endName?: string;
+  startX?: number;
+  startY?: number;
+  endX?: number;
+  endY?: number;
+  stationCount?: number;
+  way?: string | number;
+  door?: string | number;
+  lane?: { busNo?: string; name?: string }[];
+  passStopList?: { stationList?: unknown[] };
+}
 interface OdsayPath { info?: { mapObj?: string; totalTime?: number; totalWalk?: number; payment?: number; firstStartStation?: string; lastEndStation?: string }; subPath?: OdsaySubPath[] }
 interface Lane { section?: { graphPos?: { x: number | string; y: number | string }[] }[]; graphPos?: { x: number | string; y: number | string }[] }
 
@@ -197,22 +227,93 @@ export async function GET(req: NextRequest) {
 
     const lanes = await odsayLanes(path.info?.mapObj, odsayKey!);
     let laneIndex = 0;
+    let transitIndex = 0;
     const segments: Segment[] = path.subPath.map((part) => {
       const lane = part.trafficType === 3 ? undefined : lanes[laneIndex++];
       const points = lanePoints(lane);
       const isBus = [2, 5, 6].includes(part.trafficType);
       const isRail = [1, 4].includes(part.trafficType);
+      const routeName = part.lane?.map((item) => item.busNo || item.name).find(Boolean) || null;
+      const stationCount = Number.isFinite(Number(part.stationCount))
+        ? Number(part.stationCount)
+        : Array.isArray(part.passStopList?.stationList) ? Math.max(0, part.passStopList.stationList.length - 1) : null;
       const label = isBus
-        ? `${part.trafficType === 5 ? '시외버스' : part.trafficType === 6 ? '고속버스' : '버스'}${part.lane?.[0]?.busNo ? ` ${part.lane[0].busNo}` : ''}`
-        : isRail ? (part.lane?.[0]?.name || (part.trafficType === 4 ? '기차' : '지하철')) : '도보';
-      return { trafficType: isBus ? 2 : isRail ? 1 : 3, label, distance: metric(part.distance), sectionTime: metric(part.sectionTime), points: points.length >= 2 ? points : endpoints(part) };
+        ? `${part.trafficType === 5 ? '시외버스' : part.trafficType === 6 ? '고속버스' : '버스'}${routeName ? ` ${routeName}` : ''}`
+        : isRail ? (routeName || (part.trafficType === 4 ? '기차' : '지하철')) : '도보';
+      return {
+        trafficType: isBus ? 2 : isRail ? 1 : 3,
+        providerTrafficType: part.trafficType,
+        label,
+        startName: part.startName || null,
+        endName: part.endName || null,
+        routeName,
+        stationCount,
+        transferIndex: isBus || isRail ? transitIndex++ : null,
+        way: part.way == null ? null : String(part.way),
+        door: part.door == null ? null : String(part.door),
+        distance: metric(part.distance),
+        sectionTime: metric(part.sectionTime),
+        points: points.length >= 2 ? points : endpoints(part),
+      };
+    });
+    if (segments.some((segment) => [4, 5, 6].includes(segment.providerTrafficType || 0))) {
+      const accessSegment = (from: Point, to: Point): Segment => ({
+        trafficType: 3,
+        providerTrafficType: null,
+        label: '도보',
+        startName: null,
+        endName: null,
+        routeName: null,
+        stationCount: null,
+        transferIndex: null,
+        way: null,
+        door: null,
+        distance: 0,
+        sectionTime: 0,
+        points: [from, to],
+      });
+      if (segments[0]?.trafficType !== 3) segments.unshift(accessSegment(start, segments[0]?.points[0] || start));
+      for (let index = segments.length - 1; index > 0; index--) {
+        const previous = segments[index - 1];
+        const current = segments[index];
+        if (previous.trafficType !== 3 && current.trafficType !== 3) {
+          segments.splice(index, 0, accessSegment(previous.points.at(-1) || start, current.points[0] || end));
+        }
+      }
+      if (segments.at(-1)?.trafficType !== 3) segments.push(accessSegment(segments.at(-1)?.points.at(-1) || end, end));
+    }
+    segments.forEach((segment, index) => {
+      if (segment.trafficType !== 3) {
+        const vehicle = segment.routeName || (segment.providerTrafficType === 4 ? '기차' : segment.providerTrafficType === 5 ? '시외버스' : segment.providerTrafficType === 6 ? '고속버스' : segment.trafficType === 1 ? '지하철' : '버스');
+        segment.instruction = `${segment.startName || '승차 지점'}에서 ${vehicle} 승차 → ${segment.endName || '하차 지점'} 하차`;
+        return;
+      }
+      const previous = segments[index - 1];
+      const next = segments[index + 1];
+      if (!previous && next) segment.instruction = `${next.startName || '첫 승차 지점'}까지 도보 이동`;
+      else if (previous && next) segment.instruction = `${previous.endName || '이전 하차 지점'}에서 ${next.startName || '다음 승차 지점'}까지 환승 이동`;
+      else if (previous) segment.instruction = `${previous.endName || '마지막 하차 지점'}에서 목적지까지 도보 이동`;
+      else segment.instruction = '도보 이동';
     });
     const route = validate(start, end, segments);
     const totalDistance = route.segments.reduce((sum, segment) => sum + segment.distance, 0);
     const totalTime = route.segments.reduce((sum, segment) => sum + segment.sectionTime, 0);
     const totalWalk = route.segments.filter((segment) => segment.trafficType === 3).reduce((sum, segment) => sum + segment.distance, 0);
     if (totalDistance <= 0 || totalTime <= 0) throw new Error('경로 거리 또는 시간이 올바르지 않습니다.');
-    return NextResponse.json({ summary: { totalTime, totalDistance, totalWalk, payment: metric(path.info?.payment), firstStartStation: path.info?.firstStartStation || null, lastEndStation: path.info?.lastEndStation || null }, ...route, isEstimated: false, provider: 'odsay' });
+    return NextResponse.json({
+      summary: {
+        totalTime,
+        totalDistance,
+        totalWalk,
+        payment: metric(path.info?.payment),
+        firstStartStation: path.info?.firstStartStation || route.segments.find((segment) => segment.trafficType !== 3)?.startName || null,
+        lastEndStation: path.info?.lastEndStation || route.segments.findLast((segment) => segment.trafficType !== 3)?.endName || null,
+        transferCount: Math.max(0, transitIndex - 1),
+      },
+      ...route,
+      isEstimated: false,
+      provider: 'odsay',
+    });
   } catch (error) {
     console.error('Route lookup failed:', error);
     if (error instanceof ProviderError) return NextResponse.json({ error: error.message, code: error.code, provider: error.provider, fallback: fallback(start, end) }, { status: error.status });
