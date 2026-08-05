@@ -33,6 +33,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Assign each child task explicit owned files, acceptance criteria, and verification commands, and avoid overlapping ownership.
 - The primary task must review and integrate all results, run lint/build and functional checks, reassign failures, and only then commit and push.
 - Keep task creation, progress, test failures, fixes, and Git results visible to the user.
+- Child tasks must not request user approval or perform approval-gated actions. They should stop after implementation and safe local verification, then report any required command or permission to the primary task.
+- The primary task collects every child result, resolves all issues, and presents approval-gated actions as one consolidated final approval request to the user.
 
 ## Free-First Principle
 - Prefer free and open-source fonts, libraries, APIs, assets, and service tiers.
