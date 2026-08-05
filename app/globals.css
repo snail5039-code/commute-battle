@@ -1,11 +1,11 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f7f8fc;
+  --background: #f6f8fc;
   --foreground: #172033;
   --surface: #ffffff;
-  --surface-muted: #f1f4f9;
-  --border: #e5e9f2;
+  --surface-muted: #f3f6fb;
+  --border: #e2e8f0;
   --brand: #2563eb;
   --brand-strong: #1d4ed8;
   --muted: #6b7280;
@@ -29,8 +29,6 @@ html[data-contrast="high"] {
   --border: #cbd5e1;
 }
 
-html[data-density="compact"] { --sidebar-width: 4.75rem; }
-
 body {
   margin: 0;
   background:
@@ -45,6 +43,7 @@ body {
 button, input, select, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button:not(:disabled), a { cursor: pointer; }
+img, svg { max-width: 100%; }
 
 :focus-visible {
   outline: 3px solid rgba(37, 99, 235, 0.3);
@@ -57,7 +56,7 @@ button:not(:disabled), a { cursor: pointer; }
   background: color-mix(in srgb, var(--surface) 96%, transparent);
   border-radius: 1.125rem;
   border: 1px solid var(--border);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 12px 32px rgba(15, 23, 42, 0.055);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035), 0 10px 28px rgba(15, 23, 42, 0.05);
 }
 
 .shell-content { max-width: 90rem; margin-inline: auto; }
@@ -85,6 +84,11 @@ button:not(:disabled), a { cursor: pointer; }
 .group:focus-visible > .sidebar-tooltip { opacity: 1; transform: translateX(0); }
 
 html[data-density="compact"] .card { border-radius: .875rem; }
+
+@media (max-width: 767px) {
+  body { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
+  .card { border-radius: 1rem; }
+}
 html[data-motion="reduced"] *,
 html[data-motion="reduced"] *::before,
 html[data-motion="reduced"] *::after {

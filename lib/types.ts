@@ -50,3 +50,17 @@ export interface CommuteState {
   type?: 'commute' | 'return';
   start_time?: Date;
 }
+
+export type WorkdayMode = 'office' | 'remote' | 'off';
+
+export interface WorkdayOverride {
+  mode: WorkdayMode;
+  startTime?: string;
+  endTime?: string;
+}
+
+export interface WorkSchedule {
+  startTime: string;
+  endTime: string;
+  overrides: Partial<Record<number, WorkdayOverride>>;
+}

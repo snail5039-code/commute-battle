@@ -18,6 +18,10 @@ import { getTimeSegment } from '@/lib/petMessages';
 import { STAGE_NAMES } from '@/lib/characterStages';
 import { showOsNotification } from '@/lib/notifications';
 import CharacterIcon from './CharacterIcon';
+import {
+  PET_CATALOG,
+  useSelectedPetId,
+} from '@/lib/petCatalog';
 
 const CHECK_INTERVAL_MS = 60 * 1000;
 const WANDER_INTERVAL_MS = 9 * 1000;
@@ -56,6 +60,7 @@ export default function PetWidget() {
   const [happy, setHappy] = useState(false);
   const [poked, setPoked] = useState(false);
   const [showHeart, setShowHeart] = useState(false);
+  const petId = useSelectedPetId();
 
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevStage = useRef<string | null>(null);
@@ -280,6 +285,8 @@ export default function PetWidget() {
 
   if (!user || !pos) return null;
 
+  const pet = PET_CATALOG[petId];
+
   return (
     <>
       <div
@@ -304,6 +311,8 @@ export default function PetWidget() {
                 {message}
               </p>
               <button
+                type="button"
+                aria-label="펫 말풍선 닫기"
                 onClick={() => setMessageBoth(null)}
                 className="text-neutral-300 hover:text-neutral-500 shrink-0"
               >
@@ -326,6 +335,7 @@ export default function PetWidget() {
           )}
 
           <button
+            type="button"
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -333,13 +343,16 @@ export default function PetWidget() {
               if (e.button === 0 && !movedRef.current) handlePoke();
             }}
             onContextMenu={handleContextMenu}
-            className={`absolute inset-0 pointer-events-auto w-12 h-12 rounded-full bg-gradient-to-b from-blue-500 to-blue-600 shadow-lg flex items-center justify-center text-white cursor-grab active:cursor-grabbing touch-none ${
+            className={`absolute inset-0 pointer-events-auto w-12 h-12 rounded-full shadow-lg flex items-center justify-center cursor-grab active:cursor-grabbing touch-none ${
               happy ? 'pet-happy' : poked ? 'pet-poke' : !dragging && wandering ? 'pet-float' : ''
             }`}
-            title="캐릭터 (우클릭: 메뉴 / 드래그: 이동)"
+            style={{ backgroundColor: pet.softColor, color: pet.color }}
+            aria-label={`${pet.name} ${pet.stageNames[user.character_stage]}. 누르면 대화하고, 드래그하면 이동합니다.`}
+            title={`${pet.name} (우클릭: 메뉴 / 드래그: 이동)`}
           >
             <CharacterIcon
               stage={user.character_stage}
+              petId={petId}
               size={22}
               strokeWidth={1.75}
             />
@@ -354,6 +367,7 @@ export default function PetWidget() {
           onClick={(e) => e.stopPropagation()}
         >
           <button
+            type="button"
             onClick={() => {
               setWandering((w) => {
                 const next = !w;
@@ -368,6 +382,7 @@ export default function PetWidget() {
             {wandering ? '멈추기' : '움직이기'}
           </button>
           <button
+            type="button"
             onClick={handlePlay}
             className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[8px] text-[12px] text-neutral-700 hover:bg-neutral-100 transition-colors"
           >

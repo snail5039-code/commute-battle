@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { NextRequest, NextResponse } from 'next/server';
+import { getExpNeeded, getStageForLevel } from '@/lib/characterStages';
 
 export async function POST(req: NextRequest) {
   try {
@@ -51,19 +52,11 @@ export async function POST(req: NextRequest) {
     if (user) {
       let newLevel = user.character_level;
       let newExp = user.character_exp + exp;
-      let newStage = user.character_stage;
-
-      // 레벨업 계산
-      const expNeeded = newLevel * 20;
-      if (newExp >= expNeeded) {
+      while (newExp >= getExpNeeded(newLevel)) {
+        newExp -= getExpNeeded(newLevel);
         newLevel += 1;
-        newExp -= expNeeded;
-
-        // 진화 단계 업데이트
-        if (newLevel >= 20) newStage = 'veteran';
-        else if (newLevel >= 10) newStage = 'warrior';
-        else if (newLevel >= 5) newStage = 'seedling';
       }
+      const newStage = getStageForLevel(newLevel);
 
       await supabase
         .from('users')

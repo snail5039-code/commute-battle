@@ -1,14 +1,16 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Bot, CloudRain, Navigation, Send, ShieldCheck } from 'lucide-react';
 import { requestAssistant } from '@/lib/aiClient';
+import { loadWorkSchedule, useStore, workTimeToMinutes } from '@/lib/store';
 import { assessDataQuality, qualitySummary } from '@/lib/dataQuality';
 import { geocodeAddress, loadKakaoMapSdk } from '@/lib/kakaoMap';
 import { computeMonthlyStats } from '@/lib/stats';
 import { CommuteRecord, User } from '@/lib/types';
 import { fetchWeather, weatherLabel, type WeatherResponse } from '@/lib/weather';
+import StatusIcon from './StatusIcon';
 
 type Intent = 'departure_time' | 'less_walking' | 'commute_summary' | 'unsupported';
 interface Answer { intent: Intent; text: string; details: string[] }
@@ -49,7 +51,11 @@ export default function AssistantPanel({ user, records }: { user: User; records:
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [answer, setAnswer] = useState<Answer | null>(null);
-  const stats = useMemo(() => computeMonthlyStats(records, new Date()), [records]);
+  const workStartTime = useStore((state) => state.workSchedule.startTime);
+  const setWorkSchedule = useStore((state) => state.setWorkSchedule);
+  const workStartMinutes = workTimeToMinutes(workStartTime);
+  useEffect(() => { setWorkSchedule(loadWorkSchedule(user.id)); }, [setWorkSchedule, user.id]);
+  const stats = useMemo(() => computeMonthlyStats(records, new Date(), workStartMinutes), [records, workStartMinutes]);
   const quality = useMemo(() => assessDataQuality(records), [records]);
 
   function initialAnswer(intent: Intent): Answer {
@@ -108,7 +114,7 @@ export default function AssistantPanel({ user, records }: { user: User; records:
         const tripMinutes = route?.totalTime ?? stats.weekly.averageMinutes ?? 45;
         const rainBuffer = forecast && (forecast.current.precipitation > 0 || forecast.current.precipitationProbability >= 30) ? 10 : 0;
         const variability = stats.weekly.variabilityMinutes ?? 5;
-        const departureMinutes = Math.max(0, 9 * 60 - tripMinutes - rainBuffer - variability);
+        const departureMinutes = Math.max(0, workStartMinutes - tripMinutes - rainBuffer - variability);
         fallback = {
           intent,
           text: `${String(Math.floor(departureMinutes / 60)).padStart(2, '0')}:${String(departureMinutes % 60).padStart(2, '0')} 출발을 권해요.`,
@@ -122,11 +128,11 @@ export default function AssistantPanel({ user, records }: { user: User; records:
 
   function submit(event: FormEvent) { event.preventDefault(); const question = input.trim(); if (!question || busy) return; setInput(''); void ask(question); }
   const examples = ['오늘 비 오는데 언제 나가?', '걷기 적은 경로', '최근 7일 통계 요약'];
-  return <div className="space-y-4">
-    <section className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-5"><div className="flex items-center gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-blue-600 text-white"><Bot size={20}/></span><div><h2 className="font-semibold">출퇴근 비서</h2><p className="text-xs text-neutral-500">날씨 · 경로 · 신뢰 가능한 통계를 함께 확인해요.</p></div></div></section>
-    <div className="flex flex-wrap gap-2">{examples.map((example) => <button key={example} onClick={() => void ask(example)} disabled={busy} className="rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs hover:border-blue-300">{example}</button>)}</div>
-    {answer && <section aria-live="polite" className="card p-5"><p className="text-sm font-semibold leading-6">{answer.text}</p><ul className="mt-3 space-y-2 text-xs text-neutral-600">{answer.details.map((detail, index) => <li key={`${detail}-${index}`} className="flex gap-2"><ShieldCheck size={14} className="shrink-0 text-blue-600"/>{detail}</li>)}</ul>{answer.intent === 'less_walking' && <Link href="/map" className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-blue-700"><Navigation size={14}/>이동 화면 열기</Link>}</section>}
-    <form onSubmit={submit} className="card flex gap-2 p-3"><label className="sr-only" htmlFor="assistant-question">질문</label><input id="assistant-question" value={input} onChange={(event) => setInput(event.target.value)} placeholder="출퇴근 질문을 입력하세요" className="min-w-0 flex-1 rounded-xl bg-neutral-50 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200"/><button disabled={busy} className="flex size-11 items-center justify-center rounded-xl bg-blue-600 text-white disabled:opacity-50" aria-label="질문 보내기">{busy ? <CloudRain className="animate-pulse" size={18}/> : <Send size={18}/>}</button></form>
+  return <div className="min-w-0 space-y-4">
+    <section className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-5"><div className="flex items-center gap-3"><StatusIcon icon={Bot} tone="blue" size="lg" /><div className="min-w-0"><h2 className="font-bold text-slate-950">출퇴근 비서</h2><p className="mt-0.5 text-xs leading-5 text-slate-500">날씨 · 경로 · 신뢰 가능한 통계를 함께 확인해요.</p></div></div></section>
+    <div className="flex flex-wrap gap-2">{examples.map((example) => <button key={example} onClick={() => void ask(example)} disabled={busy} className="min-h-10 rounded-full border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">{example}</button>)}</div>
+    {answer && <section aria-live="polite" className="card p-5"><p className="text-sm font-semibold leading-6 text-slate-900">{answer.text}</p><ul className="mt-3 space-y-2 text-xs leading-5 text-slate-600">{answer.details.map((detail, index) => <li key={`${detail}-${index}`} className="flex gap-2"><ShieldCheck size={15} className="mt-0.5 shrink-0 text-blue-600"/>{detail}</li>)}</ul>{answer.intent === 'less_walking' && <Link href="/map" className="mt-4 inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs font-bold text-blue-700 hover:bg-blue-50"><Navigation size={14}/>이동 화면 열기</Link>}</section>}
+    <form onSubmit={submit} className="card flex min-w-0 gap-2 p-3"><label className="sr-only" htmlFor="assistant-question">질문</label><input id="assistant-question" value={input} onChange={(event) => setInput(event.target.value)} placeholder="출퇴근 질문을 입력하세요" className="min-w-0 flex-1 rounded-xl border border-transparent bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100"/><button disabled={busy} className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50" aria-label="질문 보내기">{busy ? <CloudRain className="animate-pulse" size={18}/> : <Send size={18}/>}</button></form>
     <p className="text-center text-[11px] text-neutral-400">규칙 기반 intent만 처리하며 데이터베이스에는 쓰지 않습니다.</p>
   </div>;
 }

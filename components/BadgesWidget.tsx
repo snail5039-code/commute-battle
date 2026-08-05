@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { ChevronRight, LockKeyhole } from 'lucide-react';
 import { getBadgeSummary } from '@/lib/badges';
+import { getExpNeeded } from '@/lib/characterStages';
 import { CommuteRecord, User } from '@/lib/types';
 import BadgeIcon from './BadgeIcon';
 import CharacterIcon from './CharacterIcon';
@@ -17,7 +18,7 @@ export default function BadgesWidget({ records, user }: { records: CommuteRecord
     .filter((item) => !item.completed)
     .sort((a, b) => b.percent - a.percent || a.badge.target - b.badge.target)
     .slice(0, 3);
-  const expNeeded = user ? user.character_level * 20 : 0;
+  const expNeeded = user ? getExpNeeded(user.character_level) : 0;
   const expPercent = user && expNeeded ? Math.min((user.character_exp / expNeeded) * 100, 100) : 0;
 
   return (

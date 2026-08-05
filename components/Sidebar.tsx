@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LogIn, Siren } from 'lucide-react';
 import { NAV_ITEMS } from '@/lib/nav';
+import StatusIcon from './StatusIcon';
 
 const LABELS: Record<string, string> = {
   '/': '홈', '/map': '이동', '/badges': '배지', '/stats': '통계', '/settings': '설정',
@@ -13,11 +14,9 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-[var(--sidebar-width)] shrink-0 flex-col items-center border-r border-slate-200/80 bg-white/80 py-4 backdrop-blur-xl md:flex">
+    <aside className="sticky top-0 hidden h-screen w-[88px] shrink-0 flex-col items-center border-r border-slate-200/80 bg-white/90 py-4 backdrop-blur-xl md:flex">
       <Link href="/" className="group relative flex size-12 items-center justify-center rounded-2xl text-slate-950" aria-label="출퇴근 생존일지 홈">
-        <span className="flex size-10 items-center justify-center rounded-[14px] bg-gradient-to-br from-sky-500 via-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-200/70 transition-transform group-hover:-translate-y-0.5">
-          <Siren size={19} strokeWidth={2.2} aria-hidden="true" />
-        </span>
+        <StatusIcon icon={Siren} inverted className="bg-gradient-to-br from-sky-500 via-blue-600 to-indigo-600 shadow-lg shadow-blue-200/70 transition-transform group-hover:-translate-y-0.5" />
         <span className="sidebar-tooltip">출퇴근 생존일지</span>
       </Link>
 

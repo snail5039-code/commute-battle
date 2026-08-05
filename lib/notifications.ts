@@ -17,6 +17,7 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 export function showOsNotification(title: string, body: string): void {
   if (!isNotificationSupported()) return;
   if (Notification.permission !== 'granted') return;
+  if (localStorage.getItem('petQuiet') === 'true') return;
 
   try {
     new Notification(title, { body, icon: '/favicon.ico' });
@@ -27,9 +28,25 @@ export function showOsNotification(title: string, body: string): void {
 
 const delivered = new Set<string>();
 
+function deliveryKey(key: string) {
+  const today = new Intl.DateTimeFormat('en-CA').format(new Date());
+  return `commute-notification:${today}:${key}`;
+}
+
 export function showRouteNotificationOnce(key: string, title: string, body: string): boolean {
   if (!key || delivered.has(key) || getNotificationPermission() !== 'granted') return false;
+  if (localStorage.getItem('petQuiet') === 'true') return false;
   delivered.add(key);
+  showOsNotification(title, body);
+  return true;
+}
+
+export function showPersistentNotificationOnce(key: string, title: string, body: string): boolean {
+  if (typeof window === 'undefined' || !key || getNotificationPermission() !== 'granted') return false;
+  if (localStorage.getItem('petQuiet') === 'true') return false;
+  const storedKey = deliveryKey(key);
+  if (localStorage.getItem(storedKey) === 'true') return false;
+  localStorage.setItem(storedKey, 'true');
   showOsNotification(title, body);
   return true;
 }

@@ -12,6 +12,7 @@ import WeatherCard from './WeatherCard';
 import DepartureRecommendation from './DepartureRecommendation';
 import { geocodeAddress, loadKakaoMapSdk } from '@/lib/kakaoMap';
 import { fetchWeather, recommendDeparture, WEATHER_FALLBACK, WeatherResponse } from '@/lib/weather';
+import { getWorkdaySchedule, loadWorkSchedule, useStore } from '@/lib/store';
 
 interface CommuteButtonProps {
   user: User;
@@ -19,8 +20,23 @@ interface CommuteButtonProps {
   onChange: () => void;
 }
 
-const WORK_START_MIN = 9 * 60;
-const WORK_END_MIN = 18 * 60;
+function timeToMinutes(time: string) {
+  const [hours, minutes] = time.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+
+function formatMinutesOfDay(value: number) {
+  const normalized = (value + 24 * 60) % (24 * 60);
+  return `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')}`;
+}
+
+function formatRemaining(ms: number) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0 ? `${hours}시간 ${minutes}분 ${seconds}초` : `${minutes}분 ${seconds}초`;
+}
 
 function formatElapsed(ms: number) {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -50,6 +66,8 @@ export default function CommuteButton({
   const [now, setNow] = useState(() => new Date());
   const [weather, setWeather] = useState<WeatherResponse>(WEATHER_FALLBACK);
   const [weatherLoading, setWeatherLoading] = useState(true);
+  const storedSchedule = useStore((state) => state.workSchedule);
+  const setStoredSchedule = useStore((state) => state.setWorkSchedule);
 
   const today = new Date().toISOString().split('T')[0];
   const activeRecord = records.find(
@@ -64,6 +82,11 @@ export default function CommuteButton({
   const returnCount = records.filter(
     (r) => r.date === today && r.type === 'return'
   ).length;
+
+  useEffect(() => {
+    const saved = loadWorkSchedule(user.id);
+    setStoredSchedule(saved);
+  }, [user.id, setStoredSchedule]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
@@ -106,7 +129,18 @@ export default function CommuteButton({
     return () => controller.abort();
   }, [user.home_address]);
 
-  const departureRecommendation = recommendDeparture(records, weather, now);
+  const workday = getWorkdaySchedule(storedSchedule, now);
+  const workStartMin = timeToMinutes(workday.startTime);
+  const workEndMin = timeToMinutes(workday.endTime);
+  const baseRecommendation = recommendDeparture(records, weather, now);
+  const departureRecommendation = {
+    ...baseRecommendation,
+    departureTime: formatMinutesOfDay(timeToMinutes(baseRecommendation.departureTime) + workStartMin - 9 * 60),
+    reasons: [
+      ...baseRecommendation.reasons.filter((reason) => !reason.includes('09:00 도착')),
+      `${workday.startTime} 도착 기준`,
+    ],
+  };
 
   const requestRoute = async (type: 'commute' | 'return') => {
     setLoadingAction(type);
@@ -174,7 +208,7 @@ export default function CommuteButton({
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const progressPercent = Math.min(
     Math.max(
-      ((nowMin - WORK_START_MIN) / (WORK_END_MIN - WORK_START_MIN)) * 100,
+      ((nowMin - workStartMin) / Math.max(1, workEndMin - workStartMin)) * 100,
       0
     ),
     100
@@ -183,6 +217,10 @@ export default function CommuteButton({
   const elapsedMs = activeRecord
     ? now.getTime() - new Date(activeRecord.start_time!).getTime()
     : 0;
+  const endOfWork = new Date(now);
+  endOfWork.setHours(Math.floor(workEndMin / 60), workEndMin % 60, 0, 0);
+  const isWorking = !activeRecord && commuteCount > returnCount && workday.mode !== 'off';
+  const workRemainingMs = endOfWork.getTime() - now.getTime();
 
   const activeOrdinal = activeRecord
     ? (activeRecord.type === 'commute' ? commuteCount : returnCount)
@@ -262,11 +300,11 @@ export default function CommuteButton({
 
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[11px] text-neutral-400">09:00</span>
+            <span className="text-[11px] text-neutral-400">{workday.startTime}</span>
             <span className="text-[13px] font-mono font-semibold text-neutral-800 tabular-nums">
-              {activeRecord ? formatElapsed(elapsedMs) : formatClock(now)}
+              {activeRecord ? formatElapsed(elapsedMs) : isWorking ? (workRemainingMs > 0 ? formatRemaining(workRemainingMs) : '퇴근 권장') : formatClock(now)}
             </span>
-            <span className="text-[11px] text-neutral-400">18:00</span>
+            <span className="text-[11px] text-neutral-400">{workday.endTime}</span>
           </div>
           <div className="relative w-full bg-neutral-100 rounded-full h-1.5">
             <div
@@ -275,7 +313,7 @@ export default function CommuteButton({
             />
           </div>
           <p className="text-[11px] text-neutral-500 mt-2 text-center">
-            {statusText}
+            {isWorking && workRemainingMs > 0 ? `퇴근까지 ${formatRemaining(workRemainingMs)}` : isWorking ? '설정한 퇴근 시간이 지났어요. 퇴근을 권장합니다.' : statusText}
           </p>
         </div>
 

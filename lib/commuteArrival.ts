@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { isCommuteOnTime, isReturnOnTime } from './onTime';
+import { getExpNeeded, getStageForLevel } from './characterStages';
 import { CommuteRecord, User } from './types';
 
 export async function recordArrival(
@@ -32,18 +33,13 @@ export async function recordArrival(
 
   if (error) throw error;
 
-  const expNeeded = user.character_level * 20;
   let newLevel = user.character_level;
   let newExp = user.character_exp + expGained;
-  let newStage = user.character_stage;
-
-  if (newExp >= expNeeded) {
+  while (newExp >= getExpNeeded(newLevel)) {
+    newExp -= getExpNeeded(newLevel);
     newLevel += 1;
-    newExp -= expNeeded;
-    if (newLevel >= 20) newStage = 'veteran';
-    else if (newLevel >= 10) newStage = 'warrior';
-    else if (newLevel >= 5) newStage = 'seedling';
   }
+  const newStage = getStageForLevel(newLevel);
 
   await supabase
     .from('users')

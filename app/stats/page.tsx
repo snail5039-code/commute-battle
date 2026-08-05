@@ -1,11 +1,12 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { AlertTriangle, CalendarDays, Lightbulb, TrendingUp } from 'lucide-react';
 import TopBar from '@/components/TopBar';
 import { qualitySummary } from '@/lib/dataQuality';
 import { computeMonthlyStats, formatMinutesOfDay, getStatsFallbackComment } from '@/lib/stats';
 import { useAppData } from '@/lib/useAppData';
+import { loadWorkSchedule, useStore, workTimeToMinutes } from '@/lib/store';
 
 function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return <div className="card p-5"><p className="text-xs text-neutral-500">{label}</p><p className="mt-1 text-2xl font-semibold text-neutral-900">{value}</p>{sub && <p className="mt-1 text-xs text-neutral-400">{sub}</p>}</div>;
@@ -13,8 +14,12 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
 
 export default function StatsPage() {
   const { user, records, loading } = useAppData();
+  const workSchedule = useStore((state) => state.workSchedule);
+  const setWorkSchedule = useStore((state) => state.setWorkSchedule);
   const now = useMemo(() => new Date(), []);
-  const stats = useMemo(() => computeMonthlyStats(records, now), [records, now]);
+  useEffect(() => { setWorkSchedule(loadWorkSchedule(user?.id)); }, [setWorkSchedule, user?.id]);
+  const workStartMinutes = workTimeToMinutes(workSchedule.startTime);
+  const stats = useMemo(() => computeMonthlyStats(records, now, workStartMinutes), [records, now, workStartMinutes]);
   const issues = qualitySummary(stats.quality);
   if (loading) return null;
   return <div className="flex min-h-screen flex-col">

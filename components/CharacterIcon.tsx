@@ -1,25 +1,30 @@
 'use client';
 
-import { Egg, Sprout, Swords, Crown } from 'lucide-react';
+import { Bird, Cat, Crown, Dog, Rabbit, Shield, Sparkles, Sprout, Turtle } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import type { CharacterStage } from '@/lib/characterStages';
+import { DEFAULT_PET_ID, PET_CATALOG, type PetId } from '@/lib/petCatalog';
 
-const ICON_MAP: Record<string, typeof Egg> = {
-  alg: Egg,
-  seedling: Sprout,
-  warrior: Swords,
-  veteran: Crown,
-};
+const PET_ICONS: Record<PetId, LucideIcon> = { cat: Cat, dog: Dog, rabbit: Rabbit, bird: Bird, turtle: Turtle };
+const STAGE_BADGES: Record<CharacterStage, LucideIcon> = { alg: Sparkles, seedling: Sprout, warrior: Shield, veteran: Crown };
 
-export default function CharacterIcon({
-  stage,
-  size = 20,
-  className,
-  strokeWidth,
-}: {
-  stage: string;
+export default function CharacterIcon({ stage, petId = DEFAULT_PET_ID, size = 20, className, strokeWidth = 2, title }: {
+  stage: CharacterStage;
+  petId?: PetId;
   size?: number;
   className?: string;
   strokeWidth?: number;
+  title?: string;
 }) {
-  const Icon = ICON_MAP[stage] || Egg;
-  return <Icon size={size} className={className} strokeWidth={strokeWidth} />;
+  const PetIcon = PET_ICONS[petId];
+  const StageBadge = STAGE_BADGES[stage];
+  const pet = PET_CATALOG[petId];
+  const accessibleName = title ?? `${pet.name} ${pet.stageNames[stage]}`;
+
+  return (
+    <span className={`relative inline-flex items-center justify-center ${className ?? ''}`} style={{ width: size, height: size, color: pet.color }} role="img" aria-label={accessibleName}>
+      <PetIcon size={size} strokeWidth={strokeWidth} aria-hidden="true" />
+      <StageBadge aria-hidden="true" size={Math.max(9, Math.round(size * 0.42))} strokeWidth={2.5} className="absolute -bottom-0.5 -right-0.5 rounded-full bg-white" />
+    </span>
+  );
 }

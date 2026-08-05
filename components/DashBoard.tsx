@@ -14,11 +14,11 @@ export default function DashBoard() {
   if (!user) return null;
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex min-h-screen min-w-0 flex-col">
       <TopBar title="홈" subtitle="오늘도 무사 귀환!" />
 
-      <div className="flex-1 p-4 md:p-8 max-w-6xl w-full mx-auto">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 md:px-8 md:py-8">
+        <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-5">
           <CommuteButton user={user} records={records} onChange={refetch} />
           <CharacterCard user={user} />
           <StatsSummaryWidget records={records} />
@@ -28,7 +28,7 @@ export default function DashBoard() {
           </div>
           <BadgesWidget records={records} user={user} />
         </div>
-      </div>
+      </main>
     </div>
   );
 }

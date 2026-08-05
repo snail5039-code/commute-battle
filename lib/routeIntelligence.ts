@@ -35,6 +35,52 @@ export interface CandidateMetric {
   transferCount: number;
 }
 
+interface Point { lat: number; lng: number }
+
+export interface RouteProgress {
+  remainingDistance: number;
+  remainingMinutes: number;
+  distanceFromRoute: number;
+  progress: number;
+  source: 'route-geometry' | 'direct-fallback';
+}
+
+function metres(a: Point, b: Point) {
+  const latitude = ((a.lat + b.lat) / 2) * Math.PI / 180;
+  const x = (b.lng - a.lng) * Math.PI / 180 * Math.cos(latitude);
+  const y = (b.lat - a.lat) * Math.PI / 180;
+  return Math.sqrt(x * x + y * y) * 6_371_000;
+}
+
+export function calculateRouteProgress(current: Point, polyline: Point[], totalMinutes: number, fallbackDestination?: Point): RouteProgress | null {
+  if (polyline.length < 2) {
+    if (!fallbackDestination) return null;
+    return { remainingDistance: metres(current, fallbackDestination), remainingMinutes: totalMinutes, distanceFromRoute: 0, progress: 0, source: 'direct-fallback' };
+  }
+  const lengths = polyline.slice(1).map((point, index) => metres(polyline[index], point));
+  const totalDistance = lengths.reduce((sum, length) => sum + length, 0);
+  let travelled = 0;
+  let best = { distance: Number.POSITIVE_INFINITY, along: 0 };
+  lengths.forEach((length, index) => {
+    const start = polyline[index];
+    const end = polyline[index + 1];
+    const latitude = ((start.lat + end.lat + current.lat) / 3) * Math.PI / 180;
+    const scaleX = Math.cos(latitude);
+    const vx = (end.lng - start.lng) * scaleX;
+    const vy = end.lat - start.lat;
+    const wx = (current.lng - start.lng) * scaleX;
+    const wy = current.lat - start.lat;
+    const denominator = vx * vx + vy * vy;
+    const t = denominator ? Math.max(0, Math.min(1, (wx * vx + wy * vy) / denominator)) : 0;
+    const projected = { lat: start.lat + (end.lat - start.lat) * t, lng: start.lng + (end.lng - start.lng) * t };
+    const distance = metres(current, projected);
+    if (distance < best.distance) best = { distance, along: travelled + length * t };
+    travelled += length;
+  });
+  const progress = totalDistance ? Math.min(1, best.along / totalDistance) : 0;
+  return { remainingDistance: Math.max(0, totalDistance - best.along), remainingMinutes: Math.max(0, totalMinutes * (1 - progress)), distanceFromRoute: best.distance, progress, source: 'route-geometry' };
+}
+
 export function selectCandidateKeys(candidates: CandidateMetric[], limit = 3) {
   const unique = [...new Map(candidates.map((candidate) => [candidate.key, candidate])).values()];
   const picks: Array<{ key: string; badges: RouteBadge[] }> = [];
