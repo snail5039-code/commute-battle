@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { RouteGuideResponse } from './types';
 import { PetTriggerKey } from './petTriggers';
 import { MonthlyStats } from './stats';
+import { TimeSegment, TIME_SEGMENT_LABELS, IDLE_CHAT_FALLBACK } from './petMessages';
 
 const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY!;
 const genAI = new GoogleGenerativeAI(apiKey);
@@ -94,9 +95,21 @@ const PET_TRIGGER_INSTRUCTIONS: Record<PetTriggerKey, string> = {
 };
 
 const PET_FALLBACK_MESSAGES: Record<PetTriggerKey, string[]> = {
-  commute_late: ['야, 너 출근 안 하냐?', '나 혼자 성장 못 하잖아, 빨리 나와'],
-  return_late: ['아직도 회사냐?', '칼퇴 수호자 배지는 물 건너갔네'],
-  evening_checkin: ['오늘 하루 어땠냐?', '고생했다, 내일 또 보자'],
+  commute_late: [
+    '야, 너 출근 안 하냐?',
+    '나 혼자 성장 못 하잖아, 빨리 나와',
+    '오늘 늦잠 잤구나, 얼른 준비해',
+  ],
+  return_late: [
+    '아직도 회사냐?',
+    '칼퇴 수호자 배지는 물 건너갔네',
+    '야근 중이야? 너무 무리하지 마',
+  ],
+  evening_checkin: [
+    '오늘 하루 어땠냐?',
+    '고생했다, 내일 또 보자',
+    '오늘도 무사히 귀환했네, 잘했어',
+  ],
 };
 
 export async function generatePetMessage(
@@ -129,6 +142,31 @@ ${PET_TRIGGER_INSTRUCTIONS[trigger]}
 
 function pickFallback(pool: string[]): string {
   return pool[Math.floor(Math.random() * pool.length)];
+}
+
+export async function generateIdleChat(
+  segment: TimeSegment,
+  characterStage: string
+): Promise<string> {
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+
+    const prompt = `너는 사용자와 함께 지내는 작은 캐릭터야 (현재 진화 단계: ${characterStage}).
+지금은 ${TIME_SEGMENT_LABELS[segment]} 시간대야.
+
+[규칙]
+- 출퇴근과 상관없는 가벼운 잡담을 반말로 한 문장만 해라 (20자 이내)
+- 지금 시간대(${TIME_SEGMENT_LABELS[segment]})에 어울리는 내용으로
+- 문장만 출력하고 다른 설명은 붙이지 마라`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim().replace(/^["']|["']$/g, '');
+
+    return text || pickFallback(IDLE_CHAT_FALLBACK[segment]);
+  } catch (error) {
+    console.error('Gemini Idle Chat Error:', error);
+    return pickFallback(IDLE_CHAT_FALLBACK[segment]);
+  }
 }
 
 export async function generateStatsComment(
