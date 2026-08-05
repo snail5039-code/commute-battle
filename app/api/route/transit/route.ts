@@ -33,6 +33,8 @@ interface Segment {
   distance: number;
   sectionTime: number;
   points: Point[];
+  geometrySource?: 'odsay' | 'tmap-pedestrian' | 'endpoint-connector' | 'unavailable';
+  estimatedGeometry?: boolean;
 }
 interface OdsaySubPath {
   trafficType: number;
@@ -179,6 +181,8 @@ function connectionSegment(from: Point, to: Point): Segment {
     distance: Math.round(gap),
     sectionTime: Math.max(1, Math.round((gap / 1000) / WALKING_SPEED_KMH * 60)),
     points: [from, to],
+    geometrySource: 'endpoint-connector',
+    estimatedGeometry: true,
   };
 }
 
@@ -212,7 +216,29 @@ async function walking(start: Point, end: Point, key: string): Promise<Segment> 
   const points = compact(data.features.flatMap((feature: { geometry?: { type?: string; coordinates?: unknown[] } }) => feature.geometry?.type === 'LineString' ? (feature.geometry.coordinates || []).map((coordinate) => Array.isArray(coordinate) ? { lng: Number(coordinate[0]), lat: Number(coordinate[1]) } : null).filter((point): point is Point => !!point && validPoint(point)) : []));
   const props = data.features.find((feature: { properties?: { totalDistance?: number; totalTime?: number } }) => feature.properties?.totalDistance != null)?.properties;
   if (points.length < 2) throw new ProviderError('tmap', 'ROUTE_NOT_FOUND', 404, '도보 경로 좌표를 받지 못했습니다.');
-  return { trafficType: 3, label: '도보', distance: Number(props?.totalDistance || direct), sectionTime: Math.max(1, Math.round(Number(props?.totalTime || 0) / 60)), points };
+  return { trafficType: 3, label: '도보', distance: Number(props?.totalDistance || direct), sectionTime: Math.max(1, Math.round(Number(props?.totalTime || 0) / 60)), points, geometrySource: 'tmap-pedestrian', estimatedGeometry: false };
+}
+
+async function enrichWalkingSegments(segments: Segment[], key?: string): Promise<Segment[]> {
+  return Promise.all(segments.map(async (segment) => {
+    if (segment.trafficType !== 3) return segment;
+    if (segment.points.length > 2 && !segment.estimatedGeometry) {
+      return { ...segment, geometrySource: segment.geometrySource || 'odsay' };
+    }
+
+    const from = segment.points[0];
+    const to = segment.points.at(-1);
+    if (!from || !to || !key) return { ...segment, geometrySource: 'unavailable', estimatedGeometry: false };
+
+    try {
+      const routed = await walking(from, to, key);
+      if (routed.points.length <= 2) return { ...segment, geometrySource: 'unavailable', estimatedGeometry: false };
+      return { ...segment, distance: routed.distance, sectionTime: routed.sectionTime, points: routed.points, geometrySource: routed.geometrySource, estimatedGeometry: false };
+    } catch (error) {
+      console.warn('TMAP transit walking connection unavailable:', error);
+      return { ...segment, geometrySource: 'unavailable', estimatedGeometry: false };
+    }
+  }));
 }
 
 function validate(start: Point, end: Point, segments: Segment[]) {
@@ -274,6 +300,8 @@ async function pathSegments(path: OdsayPath, key: string): Promise<Segment[]> {
       distance: metric(part.distance),
       sectionTime: metric(part.sectionTime),
       points: anchoredLanePoints(part, points),
+      geometrySource: part.trafficType === 3 && points.length > 2 ? 'odsay' : undefined,
+      estimatedGeometry: part.trafficType === 3 && points.length <= 2,
     };
   });
 }
@@ -348,6 +376,7 @@ export async function GET(req: NextRequest) {
       segments = await pathSegments(path, odsayKey!);
     }
     segments = connectSegmentPoints(start, end, fillMissingSegmentPoints(start, end, segments));
+    segments = await enrichWalkingSegments(segments, tmapKey);
     let transitIndex = 0;
     segments.forEach((segment) => {
       if (segment.trafficType !== 3) segment.transferIndex = transitIndex++;

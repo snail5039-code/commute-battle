@@ -117,12 +117,13 @@ function pin(label: string) {
   return element;
 }
 
-function unavailableGeometryMarker(label: string) {
+function unavailableGeometryMarker(label: string, walking = false) {
+  const message = walking ? '상세 도보 경로 미제공' : '상세 경로 미제공';
   const element = document.createElement('div');
   element.setAttribute('role', 'img');
-  element.setAttribute('aria-label', `${label} 상세 경로 미제공`);
+  element.setAttribute('aria-label', `${label} ${message}`);
   element.style.cssText = 'white-space:nowrap;padding:3px 7px;border-radius:999px;background:#fff7ed;color:#9a3412;font:700 10px system-ui;border:1px solid #fdba74;box-shadow:0 2px 6px #0f172a33';
-  element.textContent = '상세 경로 미제공';
+  element.textContent = message;
   return element;
 }
 
@@ -142,6 +143,10 @@ function hasActualTransitGeometry(segment: RouteSegment) {
   if (segment.points.length < 3 || segment.estimatedGeometry) return false;
   if (/endpoint|estimate|missing|none/i.test(segment.geometrySource || '')) return false;
   return !isRoadReference(segment);
+}
+
+function isUnavailableWalkingGeometry(segment: RouteSegment) {
+  return segment.trafficType === 3 && segment.geometrySource === 'unavailable';
 }
 
 export default function CommuteMapView({ user, activeRecord, onArrive, onClose }: CommuteMapViewProps) {
@@ -237,11 +242,12 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
     const sourceSegments: RouteSegment[] = drawableSegments.length ? drawableSegments : [{ trafficType: 3, label: '경로', distance: data.summary.totalDistance, sectionTime: data.summary.totalTime, points: data.polyline }];
     if (selectedMode === 'transit') {
       sourceSegments.forEach((segment) => {
-        if (segment.trafficType === 3 || hasActualTransitGeometry(segment) || isRoadReference(segment)) return;
+        if (segment.trafficType === 3 && !isUnavailableWalkingGeometry(segment)) return;
+        if (segment.trafficType !== 3 && (hasActualTransitGeometry(segment) || isRoadReference(segment))) return;
         [segment.points[0], segment.points.at(-1)].filter((point): point is LatLng => Boolean(point)).forEach((point) => {
           const marker = new window.kakao.maps.CustomOverlay({
             position: new window.kakao.maps.LatLng(point.lat, point.lng),
-            content: unavailableGeometryMarker(segment.label),
+            content: unavailableGeometryMarker(segment.label, segment.trafficType === 3),
             yAnchor: 1.4,
             zIndex: 18,
           });
@@ -268,6 +274,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
     segments.forEach((segment) => {
       const roadReference = selectedMode === 'transit' && isRoadReference(segment);
       if (selectedMode === 'transit' && segment.trafficType !== 3 && !hasActualTransitGeometry(segment) && !roadReference) return;
+      if (selectedMode === 'transit' && isUnavailableWalkingGeometry(segment)) return;
       if (selectedMode === 'transit' && segment.trafficType === 3 && segment.points.length === 2 && (segment.estimatedGeometry || segment.label === '도보 연결')) return;
       const path = segment.points.map((point) => { const value = new window.kakao.maps.LatLng(point.lat, point.lng); bounds.extend(value); return value; });
       const color = selectedMode === 'walk' ? '#334155' : roadReference ? '#f97316' : (SEGMENT_COLORS[segment.trafficType] ?? '#64748b');
@@ -442,6 +449,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   };
 
   const hasUnavailableTransitGeometry = mode === 'transit' && Boolean(route?.segments.some((segment) => segment.trafficType !== 3 && !hasActualTransitGeometry(segment) && !isRoadReference(segment)));
+  const hasUnavailableWalkingGeometry = mode === 'transit' && Boolean(route?.segments.some(isUnavailableWalkingGeometry));
   const hasRoadReference = mode === 'transit' && Boolean(route?.segments.some(isRoadReference));
 
   const panel = (
@@ -457,7 +465,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
         <p className="flex items-start gap-2"><MapPin className="text-red-500" size={15} /><span><strong className="font-semibold text-neutral-700">도착지</strong> · {destinationAddress}</span></p>
       </div>
       {route?.estimated && !loading && <div className="mb-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800"><strong className="block">참고용 직선 안내</strong>실제 보행 경로가 아닌 직선거리 기준 예상 안내입니다.</div>}
-      {route && !loading && (hasUnavailableTransitGeometry || hasRoadReference) && <div className="mb-3 space-y-1.5 rounded-xl border border-orange-200 bg-orange-50 p-3 text-xs text-orange-900" aria-label="지도 경로 표시 안내">{hasUnavailableTransitGeometry && <p><strong>상세 경로 미제공</strong> · 좌표가 없는 대중교통 구간은 승·하차 지점만 표시합니다.</p>}{hasRoadReference && <p className="flex items-center gap-2"><span aria-hidden="true" className="inline-block w-8 border-t-[3px] border-dashed border-orange-500" /><span><strong>도로 기반 참고선</strong> · TMAP 차량 도로 geometry</span></p>}</div>}
+      {route && !loading && (hasUnavailableTransitGeometry || hasUnavailableWalkingGeometry || hasRoadReference) && <div className="mb-3 space-y-1.5 rounded-xl border border-orange-200 bg-orange-50 p-3 text-xs text-orange-900" aria-label="지도 경로 표시 안내">{hasUnavailableTransitGeometry && <p><strong>상세 경로 미제공</strong> · 좌표가 없는 대중교통 구간은 승·하차 지점만 표시합니다.</p>}{hasUnavailableWalkingGeometry && <p><strong>상세 도보 경로 미제공</strong> · 직선 연결선 대신 도보 구간의 승·하차 지점만 표시합니다.</p>}{hasRoadReference && <p className="flex items-center gap-2"><span aria-hidden="true" className="inline-block w-8 border-t-[3px] border-dashed border-orange-500" /><span><strong>도로 기반 참고선</strong> · TMAP 차량 도로 geometry</span></p>}</div>}
       {loading && locationStatus !== 'locating' && <div className="flex items-center gap-2 rounded-xl bg-neutral-50 p-3 text-sm text-neutral-500"><Navigation className="animate-pulse" size={16} />경로를 찾고 있어요</div>}
       {error && !loading && <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"><div className="flex gap-2"><AlertCircle className="mt-0.5 shrink-0" size={16} /><div><strong className="block text-xs">이 경로를 표시할 수 없어요</strong><span>{error}</span></div></div><button onClick={() => changeMode(mode === 'walk' ? 'transit' : 'walk')} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold shadow-sm">{mode === 'walk' ? '대중교통 대안 보기' : '도보 대안 보기'}</button></div>}
       {route && !loading && <div className="min-h-0 flex-1 overflow-y-auto pr-1"><div className="flex items-end justify-between border-b border-neutral-100 pb-4"><div><p className="text-xs text-neutral-500">예상 소요 시간</p><strong className="text-2xl text-neutral-900">{formatMinutes(route.summary.totalTime)}</strong></div><span className="text-sm text-neutral-500">{formatDistance(route.summary.totalDistance)}</span></div><ol className="mt-4" aria-label="상세 이동 경로">{route.segments.map((segment, index) => {
