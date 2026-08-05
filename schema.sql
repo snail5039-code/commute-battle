@@ -24,8 +24,8 @@ CREATE TABLE commute_records (
   weather_condition TEXT,
   exp_gained INT DEFAULT 0,
   created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE(user_id, date, type)
+  updated_at TIMESTAMP DEFAULT NOW()
+  -- 하루에 여러 번 출근/퇴근 가능 (재출근 등) 하도록 user_id+date+type UNIQUE 제약 없음
 );
 
 CREATE TABLE badges (

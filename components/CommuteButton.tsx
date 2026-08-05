@@ -52,12 +52,12 @@ export default function CommuteButton({
       (r.type === 'commute' || r.type === 'return') &&
       !r.end_time
   );
-  const commuteDone = records.some(
+  const commuteCount = records.filter(
     (r) => r.date === today && r.type === 'commute'
-  );
-  const returnDone = records.some(
+  ).length;
+  const returnCount = records.filter(
     (r) => r.date === today && r.type === 'return'
-  );
+  ).length;
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
@@ -140,13 +140,17 @@ export default function CommuteButton({
     ? now.getTime() - new Date(activeRecord.start_time!).getTime()
     : 0;
 
+  const activeOrdinal = activeRecord
+    ? (activeRecord.type === 'commute' ? commuteCount : returnCount)
+    : 0;
+
   const statusText = activeRecord
     ? activeRecord.type === 'commute'
-      ? '출근 중입니다'
-      : '퇴근 중입니다'
-    : commuteDone && !returnDone
+      ? `${activeOrdinal >= 2 ? `오늘 ${activeOrdinal}번째 ` : ''}출근 중입니다`
+      : `${activeOrdinal >= 2 ? `오늘 ${activeOrdinal}번째 ` : ''}퇴근 중입니다`
+    : commuteCount > 0 && returnCount === 0
       ? '근무 중입니다'
-      : commuteDone && returnDone
+      : commuteCount > 0 && returnCount > 0
         ? '오늘 근무를 마쳤습니다'
         : '출근 전입니다';
 
@@ -169,27 +173,37 @@ export default function CommuteButton({
         <div className="grid grid-cols-2 gap-2.5">
           <button
             onClick={() => requestRoute('commute')}
-            disabled={!!loadingAction || commuteDone || !!activeRecord}
-            className={`flex flex-col items-center justify-center gap-1.5 py-4 rounded-[14px] text-[12px] font-semibold transition-colors disabled:cursor-not-allowed ${
-              commuteDone
-                ? 'bg-blue-50 text-blue-400'
+            disabled={!!loadingAction || !!activeRecord}
+            className={`relative flex flex-col items-center justify-center gap-1.5 py-4 rounded-[14px] text-[12px] font-semibold transition-colors disabled:cursor-not-allowed ${
+              commuteCount > 0
+                ? 'bg-blue-50 text-blue-500 disabled:opacity-60'
                 : 'bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-40'
             }`}
           >
-            {commuteDone ? <Check size={18} strokeWidth={2.5} /> : <LogIn size={18} strokeWidth={2} />}
+            {commuteCount > 0 && (
+              <span className="absolute top-1.5 right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">
+                {commuteCount}
+              </span>
+            )}
+            {commuteCount > 0 ? <Check size={18} strokeWidth={2.5} /> : <LogIn size={18} strokeWidth={2} />}
             {loadingAction === 'commute' ? '조회 중...' : '출근하기'}
           </button>
 
           <button
             onClick={() => requestRoute('return')}
-            disabled={!!loadingAction || returnDone || !!activeRecord}
-            className={`flex flex-col items-center justify-center gap-1.5 py-4 rounded-[14px] text-[12px] font-semibold transition-colors disabled:cursor-not-allowed ${
-              returnDone
-                ? 'bg-slate-100 text-slate-400'
+            disabled={!!loadingAction || !!activeRecord}
+            className={`relative flex flex-col items-center justify-center gap-1.5 py-4 rounded-[14px] text-[12px] font-semibold transition-colors disabled:cursor-not-allowed ${
+              returnCount > 0
+                ? 'bg-slate-100 text-slate-500 disabled:opacity-60'
                 : 'bg-slate-700 hover:bg-slate-800 text-white disabled:opacity-40'
             }`}
           >
-            {returnDone ? <Check size={18} strokeWidth={2.5} /> : <LogOut size={18} strokeWidth={2} />}
+            {returnCount > 0 && (
+              <span className="absolute top-1.5 right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-slate-600 text-white text-[10px] font-bold flex items-center justify-center">
+                {returnCount}
+              </span>
+            )}
+            {returnCount > 0 ? <Check size={18} strokeWidth={2.5} /> : <LogOut size={18} strokeWidth={2} />}
             {loadingAction === 'return' ? '조회 중...' : '퇴근하기'}
           </button>
         </div>
