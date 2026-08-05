@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogIn, LogOut, Clock, Palmtree, Check, MapPin } from 'lucide-react';
+import { Clock3, Palmtree, Check, MapPin, TrainFront, House, PartyPopper, LoaderCircle } from 'lucide-react';
 import { User, CommuteRecord, RouteGuideResponse } from '@/lib/types';
 import { generateRouteGuide } from '@/lib/gemini';
 import { recordArrival } from '@/lib/commuteArrival';
@@ -156,7 +156,8 @@ export default function CommuteButton({
 
   return (
     <>
-      <div className="card p-6 h-full flex flex-col space-y-4">
+      <div className="card relative h-full overflow-hidden p-6 flex flex-col space-y-4">
+        <div className="pointer-events-none absolute -right-14 -top-14 size-36 rounded-full bg-gradient-to-br from-sky-100/80 to-indigo-100/30 blur-2xl" aria-hidden="true" />
         <div className="flex items-center justify-between">
           <h3 className="text-[13px] font-semibold text-neutral-900">
             오늘의 근무
@@ -174,10 +175,10 @@ export default function CommuteButton({
           <button
             onClick={() => requestRoute('commute')}
             disabled={!!loadingAction || !!activeRecord}
-            className={`relative flex flex-col items-center justify-center gap-1.5 py-4 rounded-[14px] text-[12px] font-semibold transition-colors disabled:cursor-not-allowed ${
+            className={`group relative flex min-h-24 flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border py-4 text-[12px] font-bold transition-all disabled:cursor-not-allowed ${
               commuteCount > 0
-                ? 'bg-blue-50 text-blue-500 disabled:opacity-60'
-                : 'bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-40'
+                ? 'border-sky-100 bg-sky-50 text-sky-700 disabled:opacity-60'
+                : 'border-sky-500 bg-gradient-to-br from-sky-500 to-blue-600 text-white shadow-md shadow-sky-200 hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-40'
             }`}
           >
             {commuteCount > 0 && (
@@ -185,17 +186,19 @@ export default function CommuteButton({
                 {commuteCount}
               </span>
             )}
-            {commuteCount > 0 ? <Check size={18} strokeWidth={2.5} /> : <LogIn size={18} strokeWidth={2} />}
+            <span className={`flex size-9 items-center justify-center rounded-xl ${commuteCount > 0 ? 'bg-white/80' : 'bg-white/15'}`}>
+              {loadingAction === 'commute' ? <LoaderCircle className="animate-spin" size={19} /> : commuteCount > 0 ? <Check size={19} strokeWidth={2.5} /> : <TrainFront size={20} strokeWidth={2.1} />}
+            </span>
             {loadingAction === 'commute' ? '조회 중...' : '출근하기'}
           </button>
 
           <button
             onClick={() => requestRoute('return')}
             disabled={!!loadingAction || !!activeRecord}
-            className={`relative flex flex-col items-center justify-center gap-1.5 py-4 rounded-[14px] text-[12px] font-semibold transition-colors disabled:cursor-not-allowed ${
+            className={`group relative flex min-h-24 flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border py-4 text-[12px] font-bold transition-all disabled:cursor-not-allowed ${
               returnCount > 0
-                ? 'bg-slate-100 text-slate-500 disabled:opacity-60'
-                : 'bg-slate-700 hover:bg-slate-800 text-white disabled:opacity-40'
+                ? 'border-indigo-100 bg-indigo-50 text-indigo-700 disabled:opacity-60'
+                : 'border-indigo-600 bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-md shadow-indigo-200 hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-40'
             }`}
           >
             {returnCount > 0 && (
@@ -203,7 +206,9 @@ export default function CommuteButton({
                 {returnCount}
               </span>
             )}
-            {returnCount > 0 ? <Check size={18} strokeWidth={2.5} /> : <LogOut size={18} strokeWidth={2} />}
+            <span className={`flex size-9 items-center justify-center rounded-xl ${returnCount > 0 ? 'bg-white/80' : 'bg-white/15'}`}>
+              {loadingAction === 'return' ? <LoaderCircle className="animate-spin" size={19} /> : returnCount > 0 ? <Check size={19} strokeWidth={2.5} /> : <House size={20} strokeWidth={2.1} />}
+            </span>
             {loadingAction === 'return' ? '조회 중...' : '퇴근하기'}
           </button>
         </div>
@@ -239,9 +244,10 @@ export default function CommuteButton({
             <button
               onClick={handleArrival}
               disabled={loadingAction === 'arrive'}
-              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[12px] text-[13px] font-semibold disabled:opacity-50 transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 rounded-[12px] bg-gradient-to-r from-emerald-500 to-teal-500 py-2.5 text-[13px] font-bold text-white shadow-sm shadow-emerald-200 transition-all hover:-translate-y-0.5 hover:shadow-md disabled:opacity-50"
             >
-              {loadingAction === 'arrive' ? '기록 중...' : '도착'}
+              {loadingAction === 'arrive' ? <LoaderCircle className="animate-spin" size={16} /> : <PartyPopper size={16} />}
+              {loadingAction === 'arrive' ? '기록 중...' : '무사 도착!'}
             </button>
           </div>
         )}
@@ -250,16 +256,16 @@ export default function CommuteButton({
           <button
             onClick={() => recordSimpleEvent('early_leave')}
             disabled={!!loadingAction}
-            className="flex items-center justify-center gap-1.5 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-[10px] text-[12px] font-semibold disabled:opacity-50 transition-colors"
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 py-2.5 text-[12px] font-bold text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-50"
           >
-            <Clock size={15} strokeWidth={2.25} />
+            <Clock3 size={15} strokeWidth={2.25} />
             {loadingAction === 'early_leave' ? '기록 중...' : '조퇴'}
           </button>
 
           <button
             onClick={() => recordSimpleEvent('vacation')}
             disabled={!!loadingAction}
-            className="flex items-center justify-center gap-1.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-[10px] text-[12px] font-semibold disabled:opacity-50 transition-colors"
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 py-2.5 text-[12px] font-bold text-teal-700 transition-colors hover:bg-teal-100 disabled:opacity-50"
           >
             <Palmtree size={15} strokeWidth={2.25} />
             {loadingAction === 'vacation' ? '기록 중...' : '휴가'}

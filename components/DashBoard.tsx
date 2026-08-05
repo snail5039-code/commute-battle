@@ -26,7 +26,7 @@ export default function DashBoard() {
           <div className="sm:col-span-2">
             <CalendarView records={records} />
           </div>
-          <BadgesWidget records={records} />
+          <BadgesWidget records={records} user={user} />
         </div>
       </div>
     </div>

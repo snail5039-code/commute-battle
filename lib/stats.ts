@@ -1,5 +1,8 @@
 import { CommuteRecord } from './types';
 
+export const DEFAULT_WORK_START_MINUTES = 9 * 60;
+export const MAX_RELIABLE_TRIP_MINUTES = 4 * 60;
+
 export interface MonthlyStats {
   monthRecords: CommuteRecord[];
   commuteArrivals: CommuteRecord[];
@@ -15,28 +18,85 @@ export interface MonthlyStats {
   avgReturnDuration: number | null;
   fastestTripDuration: number | null;
   challengingWeatherTrips: number;
-}
-
-function durations(list: CommuteRecord[]) {
-  return list.map((record) => record.duration_minutes).filter((value): value is number => typeof value === 'number' && value >= 0);
+  workStartMinutes: number;
+  evaluatedCommutes: number;
+  lateCount: number;
+  lateRate: number | null;
+  avgLateMinutes: number | null;
+  incompleteCommutes: number;
+  invalidArrivalTimes: number;
+  excludedDurationCount: number;
 }
 
 function average(values: number[]) {
-  return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : null;
+  return values.length
+    ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+    : null;
 }
 
-export function computeMonthlyStats(records: CommuteRecord[], now: Date): MonthlyStats {
+function reliableDurations(list: CommuteRecord[]) {
+  return list
+    .map((record) => record.duration_minutes)
+    .filter(
+      (value): value is number =>
+        typeof value === 'number' &&
+        Number.isFinite(value) &&
+        value >= 0 &&
+        value <= MAX_RELIABLE_TRIP_MINUTES
+    );
+}
+
+function durationIsExcluded(record: CommuteRecord) {
+  const value = record.duration_minutes;
+  return (
+    typeof value === 'number' &&
+    (!Number.isFinite(value) || value < 0 || value > MAX_RELIABLE_TRIP_MINUTES)
+  );
+}
+
+function minutesOfDay(value: string): number | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.getHours() * 60 + date.getMinutes();
+}
+
+export function formatMinutesOfDay(minutes: number) {
+  const normalized = Math.max(0, Math.min(23 * 60 + 59, minutes));
+  return `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(
+    normalized % 60
+  ).padStart(2, '0')}`;
+}
+
+export function computeMonthlyStats(
+  records: CommuteRecord[],
+  now: Date,
+  workStartMinutes = DEFAULT_WORK_START_MINUTES
+): MonthlyStats {
   const monthRecords = records.filter((record) => {
     const [year, month] = record.date.split('-').map(Number);
     return year === now.getFullYear() && month === now.getMonth() + 1;
   });
-  const commuteArrivals = monthRecords.filter((record) => record.type === 'commute' && record.end_time);
-  const returnArrivals = monthRecords.filter((record) => record.type === 'return' && record.end_time);
+  const commuteRecords = monthRecords.filter((record) => record.type === 'commute');
+  const commuteArrivals = commuteRecords.filter((record) => Boolean(record.end_time));
+  const returnArrivals = monthRecords.filter(
+    (record) => record.type === 'return' && Boolean(record.end_time)
+  );
   const commuteDates = new Set(commuteArrivals.map((record) => record.date));
   const returnDates = new Set(returnArrivals.map((record) => record.date));
-  const commuteDurations = durations(commuteArrivals);
-  const returnDurations = durations(returnArrivals);
+  const commuteDurations = reliableDurations(commuteArrivals);
+  const returnDurations = reliableDurations(returnArrivals);
+  const allArrivals = [...commuteArrivals, ...returnArrivals];
   const allDurations = [...commuteDurations, ...returnDurations];
+
+  const arrivalMinutes = commuteArrivals.map((record) =>
+    record.end_time ? minutesOfDay(record.end_time) : null
+  );
+  const validArrivalMinutes = arrivalMinutes.filter(
+    (value): value is number => value !== null
+  );
+  const lateMinutes = validArrivalMinutes
+    .map((value) => value - workStartMinutes)
+    .filter((value) => value > 0);
 
   return {
     monthRecords,
@@ -52,15 +112,34 @@ export function computeMonthlyStats(records: CommuteRecord[], now: Date): Monthl
     avgCommuteDuration: average(commuteDurations),
     avgReturnDuration: average(returnDurations),
     fastestTripDuration: allDurations.length ? Math.min(...allDurations) : null,
-    challengingWeatherTrips: [...commuteArrivals, ...returnArrivals].filter((record) => ['caution', 'alert', 'danger'].includes(record.weather_condition ?? '')).length,
+    challengingWeatherTrips: allArrivals.filter((record) =>
+      ['caution', 'alert', 'danger'].includes(record.weather_condition ?? '')
+    ).length,
+    workStartMinutes,
+    evaluatedCommutes: validArrivalMinutes.length,
+    lateCount: lateMinutes.length,
+    lateRate: validArrivalMinutes.length
+      ? Math.round((lateMinutes.length / validArrivalMinutes.length) * 100)
+      : null,
+    avgLateMinutes: average(lateMinutes),
+    incompleteCommutes: commuteRecords.filter((record) => !record.end_time).length,
+    invalidArrivalTimes: arrivalMinutes.filter((value) => value === null).length,
+    excludedDurationCount: allArrivals.filter(durationIsExcluded).length,
   };
 }
 
 export function getStatsFallbackComment(stats: MonthlyStats): string {
-  if (stats.monthRecords.length === 0) return '아직 이번 달 기록이 없어요. 첫 이동을 남기면 여기서 패턴을 함께 찾아볼게요.';
-  if (stats.roundTripDays >= 5) return `출근과 퇴근을 모두 기록한 날이 ${stats.roundTripDays}일이에요. 탄탄한 기록 루틴이 만들어지고 있어요!`;
-  if (stats.challengingWeatherTrips > 0) return `궂은 날씨에도 ${stats.challengingWeatherTrips}번 이동을 마쳤어요. 오늘도 안전한 이동이 가장 중요해요.`;
-  if (stats.timedTrips >= 3 && stats.avgCommuteDuration !== null) return `소요 시간이 담긴 이동이 ${stats.timedTrips}회 쌓였어요. 이번 달 평균 출근 시간은 ${stats.avgCommuteDuration}분이에요.`;
-  if (stats.commuteArrivals.length || stats.returnArrivals.length) return `이번 달 완료한 이동이 ${stats.commuteArrivals.length + stats.returnArrivals.length}회예요. 기록이 쌓일수록 더 선명한 패턴을 보여드릴게요.`;
-  return `이번 달 ${stats.activeDays}일의 생활 기록이 있어요. 이동 완료 기록도 남기면 소요 시간 흐름을 볼 수 있어요.`;
+  if (stats.monthRecords.length === 0) {
+    return '아직 이번 달 기록이 없어요. 첫 출근을 완료하면 흐름을 함께 살펴볼게요.';
+  }
+  if (stats.evaluatedCommutes === 0) {
+    return '도착 시각이 있는 출근 기록이 없어 지각 여부는 아직 판단할 수 없어요.';
+  }
+  if (stats.lateCount === 0) {
+    return `${formatMinutesOfDay(stats.workStartMinutes)} 기준으로 확인 가능한 출근 ${stats.evaluatedCommutes}건이 모두 제시간이었어요.`;
+  }
+  if (stats.lateRate !== null && stats.lateRate >= 50) {
+    return `확인 가능한 출근 중 ${stats.lateRate}%가 기준 시각을 넘겼어요. 평균 ${stats.avgLateMinutes}분만 일찍 움직여도 흐름이 달라질 수 있어요.`;
+  }
+  return `확인 가능한 출근 ${stats.evaluatedCommutes}건 중 ${stats.lateCount}건이 늦었어요. 다음에는 평균 ${stats.avgLateMinutes}분 일찍 출발해 보세요.`;
 }
