@@ -24,3 +24,16 @@ export function showOsNotification(title: string, body: string): void {
     console.error('OS notification error:', error);
   }
 }
+
+const delivered = new Set<string>();
+
+export function showRouteNotificationOnce(key: string, title: string, body: string): boolean {
+  if (!key || delivered.has(key) || getNotificationPermission() !== 'granted') return false;
+  delivered.add(key);
+  showOsNotification(title, body);
+  return true;
+}
+
+export function resetRouteNotifications(): void {
+  delivered.clear();
+}

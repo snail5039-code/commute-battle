@@ -8,6 +8,10 @@ import { generateRouteGuide } from '@/lib/gemini';
 import { recordArrival } from '@/lib/commuteArrival';
 import { supabase } from '@/lib/supabase';
 import RouteModal from './RouteModal';
+import WeatherCard from './WeatherCard';
+import DepartureRecommendation from './DepartureRecommendation';
+import { geocodeAddress, loadKakaoMapSdk } from '@/lib/kakaoMap';
+import { fetchWeather, recommendDeparture, WEATHER_FALLBACK, WeatherResponse } from '@/lib/weather';
 
 interface CommuteButtonProps {
   user: User;
@@ -44,6 +48,8 @@ export default function CommuteButton({
   const [routeGuide, setRouteGuide] = useState<RouteGuideResponse | null>(null);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const [weather, setWeather] = useState<WeatherResponse>(WEATHER_FALLBACK);
+  const [weatherLoading, setWeatherLoading] = useState(true);
 
   const today = new Date().toISOString().split('T')[0];
   const activeRecord = records.find(
@@ -64,6 +70,44 @@ export default function CommuteButton({
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    const load = async () => {
+      let coordinates: { lat: number; lng: number } | null = null;
+      let locationSource: WeatherResponse['locationSource'] = 'default';
+      try {
+        coordinates = await new Promise((resolve) => {
+          if (!navigator.geolocation) return resolve(null);
+          navigator.geolocation.getCurrentPosition(
+            (position) => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
+            () => resolve(null),
+            { timeout: 4_000, maximumAge: 10 * 60 * 1000 }
+          );
+        });
+        if (coordinates) locationSource = 'current';
+        if (!coordinates && user.home_address) {
+          const sdk = await loadKakaoMapSdk();
+          coordinates = await geocodeAddress(sdk, user.home_address);
+          if (coordinates) locationSource = 'saved-address';
+        }
+        if (!coordinates) coordinates = { lat: 37.5665, lng: 126.978 };
+        const result = await fetchWeather(coordinates.lat, coordinates.lng, controller.signal);
+        setWeather({ ...result, locationSource });
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.error('Weather loading failed:', error);
+          setWeather({ ...WEATHER_FALLBACK, locationSource });
+        }
+      } finally {
+        if (!controller.signal.aborted) setWeatherLoading(false);
+      }
+    };
+    void load();
+    return () => controller.abort();
+  }, [user.home_address]);
+
+  const departureRecommendation = recommendDeparture(records, weather, now);
+
   const requestRoute = async (type: 'commute' | 'return') => {
     setLoadingAction(type);
     try {
@@ -72,9 +116,9 @@ export default function CommuteButton({
         work_address: user.work_address || '회사',
         commute_type: type,
         weather: {
-          precipitation_mm_h: 0,
-          probability: 20,
-          condition: '맑음',
+          precipitation_mm_h: weather.current.precipitation,
+          probability: weather.current.precipitationProbability,
+          condition: weather.current.weatherCode === 0 ? '맑음' : '기상 변화 있음',
         },
       });
 
@@ -213,6 +257,9 @@ export default function CommuteButton({
           </button>
         </div>
 
+        <WeatherCard weather={weather} loading={weatherLoading} />
+        <DepartureRecommendation recommendation={departureRecommendation} />
+
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[11px] text-neutral-400">09:00</span>
@@ -278,6 +325,7 @@ export default function CommuteButton({
           guide={routeGuide}
           user={user}
           type={routeType}
+          recommendation={departureRecommendation}
           onClose={() => setShowRoute(false)}
           onDeparted={async () => {
             setShowRoute(false);

@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { User, RouteGuideResponse } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
+import { DepartureRecommendation as Recommendation } from '@/lib/weather';
+import DepartureRecommendation from './DepartureRecommendation';
 
 interface RouteModalProps {
   guide: RouteGuideResponse;
@@ -10,6 +12,7 @@ interface RouteModalProps {
   type: 'commute' | 'return';
   onClose: () => void;
   onDeparted: () => void;
+  recommendation: Recommendation;
 }
 
 const DIFFICULTY_STYLES: Record<string, string> = {
@@ -54,6 +57,7 @@ export default function RouteModal({
   type,
   onClose,
   onDeparted,
+  recommendation,
 }: RouteModalProps) {
   const [loading, setLoading] = useState(false);
 
@@ -98,6 +102,8 @@ export default function RouteModal({
           {guide.message}
         </div>
 
+        <DepartureRecommendation recommendation={recommendation} />
+
         <div className="grid grid-cols-2 gap-4">
           <div>
             <p className="text-[11px] text-neutral-400">경로</p>
@@ -109,7 +115,7 @@ export default function RouteModal({
           <div>
             <p className="text-[11px] text-neutral-400">추천 출발</p>
             <p className="text-[14px] font-semibold text-neutral-900 mt-0.5">
-              {guide.recommended_departure}
+              {recommendation.departureTime} 출발
             </p>
           </div>
         </div>
