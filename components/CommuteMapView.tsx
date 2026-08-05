@@ -37,7 +37,8 @@ interface RouteSegment {
 }
 
 interface RouteDebug {
-  mapObj: boolean;
+  provider?: string;
+  mapObj?: boolean;
   subPathCount: number;
   laneCount: number;
   polylinePointCount: number;
