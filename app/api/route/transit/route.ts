@@ -5,14 +5,13 @@ const ODSAY_REFERER = 'https://commute-battle.vercel.app';
 
 interface OdsayLane {
   busNo?: string;
+  name?: string;
 }
 
 interface OdsaySubPath {
   trafficType: number;
   distance?: number;
   sectionTime: number;
-  startName?: string;
-  endName?: string;
   startX?: number;
   startY?: number;
   endX?: number;
@@ -21,17 +20,68 @@ interface OdsaySubPath {
 }
 
 interface OdsayLaneSection {
-  graphPos?: { x: number; y: number }[];
+  graphPos?: OdsayGraphPoint[];
 }
 
 interface OdsayLaneEntry {
   section?: OdsayLaneSection[];
+  graphPos?: OdsayGraphPoint[];
+}
+
+interface OdsayGraphPoint {
+  x?: number | string;
+  y?: number | string;
+}
+
+interface Point {
+  lat: number;
+  lng: number;
 }
 
 function segmentLabel(sp: OdsaySubPath): string {
-  if (sp.trafficType === 1) return '지하철';
+  if (sp.trafficType === 1) return sp.lane?.[0]?.name || '지하철';
   if (sp.trafficType === 2) return `버스${sp.lane?.[0]?.busNo ? ` ${sp.lane[0].busNo}` : ''}`;
   return '도보';
+}
+
+function toPoint(point: OdsayGraphPoint): Point | null {
+  const lng = Number(point.x);
+  const lat = Number(point.y);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+function compactPoints(points: Point[]): Point[] {
+  return points.filter((point, index) => {
+    const prev = points[index - 1];
+    return !prev || prev.lat !== point.lat || prev.lng !== point.lng;
+  });
+}
+
+function lanePoints(lane: OdsayLaneEntry | undefined): Point[] | null {
+  if (!lane) return null;
+
+  const rawPoints =
+    lane.section?.flatMap((section) => section.graphPos || []) ?? lane.graphPos ?? [];
+  const points = compactPoints(rawPoints.map(toPoint).filter((point): point is Point => !!point));
+
+  return points.length >= 2 ? points : null;
+}
+
+function endpointPoints(sp: OdsaySubPath): Point[] | null {
+  if (
+    typeof sp.startY !== 'number' ||
+    typeof sp.startX !== 'number' ||
+    typeof sp.endY !== 'number' ||
+    typeof sp.endX !== 'number'
+  ) {
+    return null;
+  }
+
+  return [
+    { lat: sp.startY, lng: sp.startX },
+    { lat: sp.endY, lng: sp.endX },
+  ];
 }
 
 export async function GET(req: NextRequest) {
@@ -41,10 +91,14 @@ export async function GET(req: NextRequest) {
   const ey = req.nextUrl.searchParams.get('ey');
 
   if (!sx || !sy || !ex || !ey) {
-    return NextResponse.json({ error: '출발지/도착지 좌표가 필요합니다' }, { status: 400 });
+    return NextResponse.json({ error: '출발지/도착지 좌표가 필요합니다.' }, { status: 400 });
   }
 
-  const apiKey = process.env.ODSAY_API_KEY!;
+  const apiKey = process.env.ODSAY_API_KEY;
+
+  if (!apiKey) {
+    return NextResponse.json({ error: 'ODsay API 키가 설정되지 않았습니다.' }, { status: 500 });
+  }
 
   try {
     const searchUrl = new URL(`${ODSAY_BASE}/searchPubTransPathT`);
@@ -59,15 +113,40 @@ export async function GET(req: NextRequest) {
     });
     const searchData = await searchRes.json();
 
+    if (!searchRes.ok || searchData?.error) {
+      return NextResponse.json(
+        {
+          error: 'ODsay 경로 조회 요청이 실패했습니다.',
+          detail: searchData?.error ?? null,
+          status: searchRes.status,
+        },
+        { status: searchRes.ok ? 502 : searchRes.status }
+      );
+    }
+
     const path = searchData?.result?.path?.[0];
     if (!path) {
-      return NextResponse.json({ error: '경로를 찾을 수 없습니다' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'ODsay에서 경로를 찾지 못했습니다.', detail: searchData?.error ?? null },
+        { status: 404 }
+      );
     }
 
     const subPath: OdsaySubPath[] = path.subPath || [];
-    const mapObj: string | undefined = path.info?.mapObj;
+    const hasTransitSegment = subPath.some((sp) => sp.trafficType === 1 || sp.trafficType === 2);
 
+    if (!hasTransitSegment) {
+      return NextResponse.json(
+        {
+          error: 'ODsay가 도보 경로만 반환했습니다.',
+          detail: 'ODsay loadLane은 버스·지하철 구간 좌표만 제공하며 도보 도로 좌표는 제공하지 않습니다.',
+        },
+        { status: 422 }
+      );
+    }
+    const mapObj: string | undefined = path.info?.mapObj;
     let lanes: OdsayLaneEntry[] = [];
+
     if (mapObj) {
       const laneUrl = new URL(`${ODSAY_BASE}/loadLane`);
       laneUrl.searchParams.set('mapObject', `0:0@${mapObj}`);
@@ -77,50 +156,41 @@ export async function GET(req: NextRequest) {
         headers: { Referer: ODSAY_REFERER },
       });
       const laneData = await laneRes.json();
+
+      if (!laneRes.ok || laneData?.error) {
+        return NextResponse.json(
+          {
+            error: 'ODsay 상세 경로 좌표 요청이 실패했습니다.',
+            detail: laneData?.error ?? null,
+            status: laneRes.status,
+          },
+          { status: laneRes.ok ? 502 : laneRes.status }
+        );
+      }
+
       lanes = laneData?.result?.lane || [];
     }
 
-    // 도보 구간은 좌표가 응답에 없어서(trafficType 3), 우선 환승 구간의 좌표만 채운다
     let laneIndex = 0;
-    const transitPoints: ({ lat: number; lng: number }[] | null)[] = subPath.map((sp) => {
+    const transitPoints: (Point[] | null)[] = subPath.map((sp) => {
       if (sp.trafficType === 3) return null;
 
-      const lane = lanes[laneIndex];
+      const points = lanePoints(lanes[laneIndex]) ?? endpointPoints(sp);
       laneIndex += 1;
-      const graphPos = lane?.section?.flatMap((s) => s.graphPos || []) || [];
-      if (graphPos.length > 1) {
-        return graphPos.map((p) => ({ lat: p.y, lng: p.x }));
-      }
-      return [
-        { lat: sp.startY!, lng: sp.startX! },
-        { lat: sp.endY!, lng: sp.endX! },
-      ];
+      return points;
     });
 
-    const origin = { lat: Number(sy), lng: Number(sx) };
-    const destination = { lat: Number(ey), lng: Number(ex) };
-
-    const segments = subPath.map((sp, i) => {
-      let points = transitPoints[i];
-
-      if (!points) {
-        const prevPoints = i > 0 ? transitPoints[i - 1] : null;
-        const nextPoints = i < subPath.length - 1 ? transitPoints[i + 1] : null;
-        const start = prevPoints ? prevPoints[prevPoints.length - 1] : origin;
-        const end = nextPoints ? nextPoints[0] : destination;
-        points = [start, end];
-      }
-
+    const segments = subPath.map((sp, index) => {
       return {
         trafficType: sp.trafficType,
         label: segmentLabel(sp),
         distance: sp.distance ?? 0,
         sectionTime: sp.sectionTime,
-        points,
+        points: transitPoints[index] ?? [],
       };
     });
 
-    const polyline = segments.flatMap((s) => s.points);
+    const polyline = compactPoints(segments.flatMap((segment) => segment.points));
 
     return NextResponse.json({
       summary: {
@@ -132,9 +202,21 @@ export async function GET(req: NextRequest) {
       },
       segments,
       polyline,
+      debug: {
+        mapObj: Boolean(mapObj),
+        subPathCount: subPath.length,
+        laneCount: lanes.length,
+        polylinePointCount: polyline.length,
+      },
     });
   } catch (error) {
-    console.error('Error fetching transit route:', error);
-    return NextResponse.json({ error: '경로 조회에 실패했습니다' }, { status: 500 });
+    console.error('Error fetching ODsay transit route:', error);
+    return NextResponse.json(
+      {
+        error: 'ODsay 경로 조회에 실패했습니다.',
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
   }
 }

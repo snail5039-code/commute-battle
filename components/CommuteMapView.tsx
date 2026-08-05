@@ -36,6 +36,13 @@ interface RouteSegment {
   points: LatLng[];
 }
 
+interface RouteDebug {
+  mapObj: boolean;
+  subPathCount: number;
+  laneCount: number;
+  polylinePointCount: number;
+}
+
 const SEOUL_CITY_HALL = { lat: 37.5665, lng: 126.978 };
 const OFF_ROUTE_THRESHOLD_M = 70;
 const OFF_ROUTE_STREAK_REQUIRED = 3;
@@ -83,7 +90,12 @@ async function fetchTransitRoute(start: LatLng, dest: LatLng) {
   const data = await res.json();
   if (!data.polyline || data.polyline.length < 2) return null;
 
-  return data as { summary: RouteSummary; segments: RouteSegment[]; polyline: LatLng[] };
+  return data as {
+    summary: RouteSummary;
+    segments: RouteSegment[];
+    polyline: LatLng[];
+    debug?: RouteDebug;
+  };
 }
 
 function getInitialPosition(timeoutMs = INITIAL_POSITION_TIMEOUT_MS): Promise<LatLng | null> {
@@ -281,7 +293,11 @@ export default function CommuteMapView({
             setRouteSummary(route.summary);
             setRouteSegments(route.segments);
             routeTotalTimeRef.current = route.summary.totalTime;
-            if (route.summary.totalTime) {
+            if ((route.debug?.polylinePointCount ?? route.polyline.length) <= 2) {
+              setPetMessage(
+                'ODsay 상세 경로 좌표가 없어 출발지와 도착지만 연결했어요. ODsay loadLane 응답을 확인해야 해요.'
+              );
+            } else if (route.summary.totalTime) {
               setPetMessage(
                 `${destLabel}까지 대략 ${route.summary.totalTime}분 걸릴 것 같아, 화이팅!`
               );
@@ -295,19 +311,9 @@ export default function CommuteMapView({
               map.setCenter(new kakao.maps.LatLng(startCoord.lat, startCoord.lng));
             }
           } else if (!cancelled) {
-            const fallbackLine = new kakao.maps.Polyline({
-              path: [
-                new kakao.maps.LatLng(startCoord.lat, startCoord.lng),
-                new kakao.maps.LatLng(destCoord.lat, destCoord.lng),
-              ],
-              strokeWeight: 3,
-              strokeColor: '#94a3b8',
-              strokeOpacity: 0.8,
-              strokeStyle: 'shortdash',
-            });
-            fallbackLine.setMap(map);
-            routePolylineRef.current = [startCoord, destCoord];
-            routeTotalDistanceRef.current = haversineDistance(startCoord, destCoord);
+            routePolylineRef.current = [];
+            routeTotalDistanceRef.current = 0;
+            setPetMessage('ODsay 경로를 아직 가져오지 못했어요. 출발/도착 좌표와 ODsay 응답을 확인해 주세요.');
             map.setCenter(
               new kakao.maps.LatLng(
                 (startCoord.lat + destCoord.lat) / 2,
@@ -398,7 +404,6 @@ export default function CommuteMapView({
         window.kakao.maps.event.removeListener(mapInstance, 'click', clickHandler);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.home_address, user.work_address, activeRecord.type, destLabel]);
 
   const elapsedMs = now.getTime() - new Date(activeRecord.start_time!).getTime();
@@ -420,7 +425,7 @@ export default function CommuteMapView({
 
   return (
     <div className="absolute inset-0 z-10 bg-white flex flex-col">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100">
+      <div className="relative z-20 flex items-center justify-between px-4 py-3 border-b border-neutral-100 bg-white">
         <div>
           <p className="text-[13px] font-semibold text-neutral-900">
             {activeRecord.type === 'commute' ? '출근 이동 중' : '퇴근 이동 중'}
@@ -440,7 +445,7 @@ export default function CommuteMapView({
       </div>
 
       {routeSegments && routeSegments.length > 0 && (
-        <div className="flex items-center gap-1.5 px-4 py-2 overflow-x-auto border-b border-neutral-100 whitespace-nowrap">
+        <div className="relative z-20 flex items-center gap-1.5 px-4 py-2 overflow-x-auto border-b border-neutral-100 whitespace-nowrap bg-white">
           {routeSegments.map((segment, i) => (
             <div key={i} className="flex items-center gap-1.5 shrink-0">
               <span
@@ -462,17 +467,17 @@ export default function CommuteMapView({
         </div>
       )}
 
-      <div className="relative flex-1">
-        <div ref={containerRef} className="absolute inset-0" />
+      <div className="relative flex-1 overflow-hidden">
+        <div ref={containerRef} className="absolute inset-0 z-0" />
         {!ready && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/70 text-[13px] text-neutral-400">
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/70 text-[13px] text-neutral-400">
             지도를 불러오는 중...
           </div>
         )}
 
         {petMessage && (
           <div
-            className={`absolute top-3 left-3 right-3 flex items-start gap-2 px-3 py-2.5 rounded-[12px] text-[12px] font-medium shadow-sm ${
+            className={`absolute z-30 top-3 left-3 right-3 flex items-start gap-2 px-3 py-2.5 rounded-[12px] text-[12px] font-medium shadow-sm ${
               offRoute
                 ? 'bg-red-50 text-red-600'
                 : 'bg-white text-neutral-700 border border-neutral-100'
@@ -484,7 +489,7 @@ export default function CommuteMapView({
         )}
 
         {showResumePrompt ? (
-          <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-2 bg-amber-50 text-amber-700 text-[12px] font-medium px-3 py-2 rounded-[10px]">
+          <div className="absolute z-30 bottom-3 left-3 right-3 flex items-center justify-between gap-2 bg-amber-50 text-amber-700 text-[12px] font-medium px-3 py-2 rounded-[10px] shadow-sm">
             <span>위치 추적이 멈춰있어요. 다시 연결할까요?</span>
             <button
               onClick={resumeTracking}
@@ -494,23 +499,23 @@ export default function CommuteMapView({
             </button>
           </div>
         ) : manualMode ? (
-          <div className="absolute bottom-3 left-3 right-3 flex items-center gap-2 bg-blue-50 text-blue-600 text-[12px] font-medium px-3 py-2 rounded-[10px]">
+          <div className="absolute z-30 bottom-3 left-3 right-3 flex items-center gap-2 bg-blue-50 text-blue-600 text-[12px] font-medium px-3 py-2 rounded-[10px] shadow-sm">
             <MapPin size={14} />
             수동으로 위치를 옮기는 중이에요
           </div>
         ) : gpsError ? (
-          <div className="absolute bottom-3 left-3 right-3 flex items-center gap-2 bg-red-50 text-red-600 text-[12px] font-medium px-3 py-2 rounded-[10px]">
+          <div className="absolute z-30 bottom-3 left-3 right-3 flex items-center gap-2 bg-red-50 text-red-600 text-[12px] font-medium px-3 py-2 rounded-[10px] shadow-sm">
             <Navigation size={14} />
             {gpsError}
           </div>
         ) : (
-          <p className="absolute bottom-3 left-3 text-[10px] text-neutral-400 bg-white/80 px-2 py-1 rounded-full">
+          <p className="absolute z-30 bottom-3 left-3 text-[10px] text-neutral-400 bg-white/90 px-2 py-1 rounded-full shadow-sm">
             지도를 클릭하거나 방향키/WASD로 이동해볼 수 있어요
           </p>
         )}
       </div>
 
-      <div className="border-t border-neutral-100 p-4 space-y-3">
+      <div className="relative z-20 border-t border-neutral-100 bg-white p-4 space-y-3">
         <p className="text-center text-[20px] font-mono font-semibold text-neutral-900 tabular-nums">
           {formatElapsed(elapsedMs)}
         </p>

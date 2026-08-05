@@ -7,3 +7,23 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+# Commute Battle App Notes
+
+## Harness
+- App root: `commute-battle/`
+- Dev server: `npm run dev`
+- Build check: `npm run build`
+- Lint check: `npm run lint`
+- Claude compatibility file: `CLAUDE.md` points back to this `AGENTS.md`; keep shared agent instructions here so Claude and Codex see the same project rules.
+
+## Runtime
+- Next.js `16.3.0`, React `19.2.8`, Tailwind CSS `4`, ESLint `9`.
+- Supabase config and public browser keys are loaded from `.env.local`.
+- Gemini integration lives in `lib/gemini.ts`.
+
+## Working Rules
+- Do not run `vercel --prod`; deployment is expected to happen from GitHub/Vercel integration.
+- Prefer focused fixes that match the existing component and library style.
+- Avoid editing generated artifacts such as `.next/`, `next-env.d.ts`, `tsconfig.tsbuildinfo`, and `node_modules/`.
+- OneDrive can lock `.next/`; if builds fail with cache lock errors, report it instead of deleting cache without explicit permission.
