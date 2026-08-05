@@ -61,7 +61,7 @@ function distance(a: Point, b: Point) {
 async function json(url: URL, provider: Provider) {
   const response = await fetch(url, { headers: { Referer: 'https://commute-battle.vercel.app' } });
   const data = await response.json().catch(() => null);
-  if (!response.ok || data?.error) throw providerFailure(provider, response, data);
+  if (!response.ok || data?.error || data?.result?.error) throw providerFailure(provider, response, data?.result?.error || data);
   return data;
 }
 
@@ -88,6 +88,23 @@ function lanePoints(lane?: Lane): Point[] {
   return compact(raw.map((point) => ({ lat: Number(point.y), lng: Number(point.x) })).filter(validPoint));
 }
 
+function metric(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : 0;
+}
+
+function fillMissingSegmentPoints(start: Point, end: Point, segments: Segment[]) {
+  if (!segments.some((segment) => segment.points.some(validPoint))) throw new Error('경로 좌표를 받지 못했습니다.');
+  return segments.map((segment, index) => {
+    if (segment.points.length >= 2) return segment;
+    let from = index === 0 ? start : segments[index - 1].points.at(-1);
+    let to = index === segments.length - 1 ? end : segments[index + 1].points[0];
+    for (let cursor = index - 1; !from && cursor >= 0; cursor--) from = segments[cursor].points.at(-1);
+    for (let cursor = index + 1; !to && cursor < segments.length; cursor++) to = segments[cursor].points[0];
+    return { ...segment, points: compact([from || start, to || end].filter(validPoint)) };
+  });
+}
+
 async function walking(start: Point, end: Point, key: string): Promise<Segment> {
   const direct = distance(start, end);
   if (direct > MAX_WALK_REQUEST_METRES) throw new Error(`도보로는 약 ${(direct / 1000).toFixed(0)}km 거리입니다. 대중교통 경로를 이용해 주세요.`);
@@ -102,7 +119,10 @@ async function walking(start: Point, end: Point, key: string): Promise<Segment> 
 }
 
 function validate(start: Point, end: Point, segments: Segment[]) {
-  const cleaned = segments.map((segment) => ({ ...segment, points: compact(segment.points.filter(validPoint)) })).filter((segment) => segment.points.length >= 2);
+  if (!segments.length) throw new Error('표시할 경로 구간이 없습니다.');
+  const sanitized = segments.map((segment) => ({ ...segment, distance: metric(segment.distance), sectionTime: metric(segment.sectionTime), points: compact(segment.points.filter(validPoint)) }));
+  const cleaned = fillMissingSegmentPoints(start, end, sanitized);
+  if (cleaned.some((segment) => segment.points.length < 2)) throw new Error('일부 경로 구간의 좌표를 구성하지 못했습니다.');
   const polyline = compact(cleaned.flatMap((segment) => segment.points));
   if (polyline.length < 2) throw new Error('표시할 수 있는 경로 좌표가 없습니다.');
   const direct = distance(start, end);
@@ -117,6 +137,9 @@ export async function GET(req: NextRequest) {
   const end = { lng: Number(req.nextUrl.searchParams.get('ex')), lat: Number(req.nextUrl.searchParams.get('ey')) };
   if (!validPoint(start) || !validPoint(end)) return NextResponse.json({ error: '출발지와 도착지 좌표가 필요합니다.' }, { status: 400 });
   if (distance(start, end) < 10) return NextResponse.json({ error: '출발지와 도착지가 너무 가깝습니다.' }, { status: 400 });
+  if (mode === 'walk' && distance(start, end) > MAX_WALK_REQUEST_METRES) {
+    return NextResponse.json({ error: '도보 경로는 직선거리 80km 이하만 조회할 수 있습니다. 대중교통 모드를 이용해 주세요.', code: 'WALK_DISTANCE_EXCEEDED', fallback: fallback(start, end) }, { status: 422 });
+  }
   // Server-only names are intentional: never copy provider secrets into NEXT_PUBLIC_* variables.
   const tmapKey = cleanSecret(process.env.TMAP_APP_KEY) || cleanSecret(process.env.TMAP_API_KEY);
   const odsayKey = cleanSecret(process.env.ODSAY_API_KEY);
@@ -140,13 +163,19 @@ export async function GET(req: NextRequest) {
     const segments: Segment[] = path.subPath.map((part) => {
       const lane = part.trafficType === 3 ? undefined : lanes[laneIndex++];
       const points = lanePoints(lane);
-      const fallback = endpoints(part);
+      const endpointPoints = endpoints(part);
       const label = part.trafficType === 1 ? (part.lane?.[0]?.name || '지하철') : part.trafficType === 2 ? `버스${part.lane?.[0]?.busNo ? ` ${part.lane[0].busNo}` : ''}` : '도보';
-      return { trafficType: part.trafficType, label, distance: Number(part.distance || 0), sectionTime: Number(part.sectionTime || 0), points: points.length >= 2 ? points : fallback };
+      return { trafficType: part.trafficType, label, distance: metric(part.distance), sectionTime: metric(part.sectionTime), points: points.length >= 2 ? points : endpointPoints };
     });
+    if (!segments.some((segment) => segment.trafficType === 1 || segment.trafficType === 2)) {
+      throw new ProviderError('odsay', 'ROUTE_NOT_FOUND', 404, '실제 지하철 또는 버스 구간이 포함된 대중교통 경로를 찾지 못했습니다.');
+    }
     const route = validate(start, end, segments);
     const totalDistance = route.segments.reduce((sum, segment) => sum + segment.distance, 0);
-    return NextResponse.json({ summary: { totalTime: Number(path.info?.totalTime || route.segments.reduce((sum, segment) => sum + segment.sectionTime, 0)), totalDistance, totalWalk: Number(path.info?.totalWalk || 0), payment: Number(path.info?.payment || 0), firstStartStation: path.info?.firstStartStation || null, lastEndStation: path.info?.lastEndStation || null }, ...route });
+    const totalTime = route.segments.reduce((sum, segment) => sum + segment.sectionTime, 0);
+    const totalWalk = route.segments.filter((segment) => segment.trafficType === 3).reduce((sum, segment) => sum + segment.distance, 0);
+    if (!Number.isFinite(totalDistance) || !Number.isFinite(totalTime) || totalDistance <= 0 || totalTime <= 0) throw new Error('경로 거리 또는 시간이 올바르지 않습니다.');
+    return NextResponse.json({ summary: { totalTime, totalDistance, totalWalk, payment: metric(path.info?.payment), firstStartStation: path.info?.firstStartStation || null, lastEndStation: path.info?.lastEndStation || null }, ...route });
   } catch (error) {
     console.error('Route lookup failed:', error);
     if (error instanceof ProviderError) {
