@@ -11,12 +11,12 @@ import {
 } from '@/lib/gemini';
 import {
   detectPetTrigger,
-  hasSpokenToday,
   isPetQuiet,
   markSpokenToday,
 } from '@/lib/petTriggers';
 import { getTimeSegment } from '@/lib/petMessages';
 import { STAGE_NAMES } from '@/lib/characterStages';
+import { showOsNotification } from '@/lib/notifications';
 import CharacterIcon from './CharacterIcon';
 
 const CHECK_INTERVAL_MS = 60 * 1000;
@@ -24,6 +24,11 @@ const WANDER_INTERVAL_MS = 9 * 1000;
 const IDLE_CHAT_CHANCE = 0.12;
 const IDLE_CHAT_COOLDOWN_MS = 5 * 60 * 1000;
 const PET_SIZE = 48;
+const DRAG_THRESHOLD = 4;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
 
 function randomPosition() {
   const marginX = 90;
@@ -43,34 +48,55 @@ function randomPosition() {
 export default function PetWidget() {
   const { user, records } = useAppData();
   const [message, setMessage] = useState<string | null>(null);
+  const [thinking, setThinking] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [wandering, setWandering] = useState(true);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const [reacting, setReacting] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [happy, setHappy] = useState(false);
+  const [poked, setPoked] = useState(false);
+  const [showHeart, setShowHeart] = useState(false);
 
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevStage = useRef<string | null>(null);
   const lastIdleChatAt = useRef(0);
   const busy = useRef(false);
+  const reactingRef = useRef(false);
 
-  const speak = useCallback((text: string) => {
+  // 렌더와 무관하게 항상 최신 값을 읽기 위한 ref (떠다니기 타이머가 매번 재생성되지 않도록)
+  const messageRef = useRef(message);
+  messageRef.current = message;
+  const wanderingRef = useRef(wandering);
+  wanderingRef.current = wandering;
+  const draggingRef = useRef(dragging);
+  draggingRef.current = dragging;
+
+  const dragStart = useRef<{
+    x: number;
+    y: number;
+    posX: number;
+    posY: number;
+  } | null>(null);
+  const movedRef = useRef(false);
+
+  const speak = useCallback((text: string, notify = false) => {
     setMessage(text);
+    setThinking(false);
     if (dismissTimer.current) clearTimeout(dismissTimer.current);
     dismissTimer.current = setTimeout(() => setMessage(null), 12000);
+    if (notify) showOsNotification('출퇴근전쟁봇', text);
   }, []);
 
-  // 떠다니기: 주기적으로 화면 안 랜덤 위치로 이동 (멈추기 상태면 정지)
+  // 떠다니기: 한 번만 설정되는 안정적인 인터벌. 매 tick마다 최신 ref 값을 확인
   useEffect(() => {
     setPos((p) => p ?? randomPosition());
 
-    if (!wandering) return;
-
-    const wander = () => {
-      if (message) return; // 말하는 중엔 가만히 있기
+    const interval = setInterval(() => {
+      if (draggingRef.current || messageRef.current || !wanderingRef.current)
+        return;
       setPos(randomPosition());
-    };
+    }, WANDER_INTERVAL_MS);
 
-    const interval = setInterval(wander, WANDER_INTERVAL_MS);
     const onResize = () => setPos((p) => p ?? randomPosition());
     window.addEventListener('resize', onResize);
 
@@ -78,7 +104,7 @@ export default function PetWidget() {
       clearInterval(interval);
       window.removeEventListener('resize', onResize);
     };
-  }, [message, wandering]);
+  }, []);
 
   // 컨텍스트 메뉴 바깥 클릭 시 닫기
   useEffect(() => {
@@ -93,7 +119,7 @@ export default function PetWidget() {
     if (!user) return;
 
     if (prevStage.current && prevStage.current !== user.character_stage) {
-      speak(`진화했다! 이제 나는 ${STAGE_NAMES[user.character_stage]}야!`);
+      speak(`진화했다! 이제 나는 ${STAGE_NAMES[user.character_stage]}야!`, true);
     }
     prevStage.current = user.character_stage;
   }, [user, speak]);
@@ -109,14 +135,14 @@ export default function PetWidget() {
       busy.current = true;
       markSpokenToday(trigger, now);
       const text = await generatePetMessage(trigger, user.character_stage);
-      speak(text);
+      speak(text, true);
       busy.current = false;
       return;
     }
 
     const sinceLastIdle = Date.now() - lastIdleChatAt.current;
     if (
-      !message &&
+      !messageRef.current &&
       sinceLastIdle > IDLE_CHAT_COOLDOWN_MS &&
       Math.random() < IDLE_CHAT_CHANCE
     ) {
@@ -129,7 +155,7 @@ export default function PetWidget() {
       speak(text);
       busy.current = false;
     }
-  }, [user, records, message, speak]);
+  }, [user, records, speak]);
 
   useEffect(() => {
     check();
@@ -140,12 +166,41 @@ export default function PetWidget() {
     };
   }, [check]);
 
-  const handleClick = async () => {
-    if (!user || reacting) return;
-    setReacting(true);
+  const lastPokeAt = useRef(0);
+
+  const handlePoke = async () => {
+    const now = Date.now();
+    if (now - lastPokeAt.current < 500) return; // 중복 트리거 방지 (pointer+click 동시 발생 대응)
+    lastPokeAt.current = now;
+
+    if (!user || reactingRef.current) return;
+    reactingRef.current = true;
+
+    setPoked(true);
+    setTimeout(() => setPoked(false), 400);
+    setThinking(true);
+    setMessage(null);
+
     const text = await generatePokeMessage(user.character_stage);
     speak(text);
-    setReacting(false);
+    reactingRef.current = false;
+  };
+
+  const handlePlay = async () => {
+    setMenu(null);
+    if (!user || reactingRef.current) return;
+    reactingRef.current = true;
+
+    setHappy(true);
+    setShowHeart(true);
+    setThinking(true);
+    setMessage(null);
+    setTimeout(() => setHappy(false), 700);
+    setTimeout(() => setShowHeart(false), 1000);
+
+    const text = await generatePlayMessage(user.character_stage);
+    speak(text);
+    reactingRef.current = false;
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -158,13 +213,44 @@ export default function PetWidget() {
     });
   };
 
-  const handlePlay = async () => {
-    setMenu(null);
-    if (!user || reacting) return;
-    setReacting(true);
-    const text = await generatePlayMessage(user.character_stage);
-    speak(text);
-    setReacting(false);
+  // 드래그: 클릭과 드래그를 구분 (일정 거리 이상 움직여야 드래그로 인식)
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (!pos) return;
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // 일부 환경에서 pointerId가 유효하지 않을 수 있음 — 무시하고 계속
+    }
+    dragStart.current = { x: e.clientX, y: e.clientY, posX: pos.x, posY: pos.y };
+    movedRef.current = false;
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!dragStart.current) return;
+    const dx = e.clientX - dragStart.current.x;
+    const dy = e.clientY - dragStart.current.y;
+
+    if (!movedRef.current && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) {
+      movedRef.current = true;
+      setDragging(true);
+    }
+
+    if (movedRef.current) {
+      setPos({
+        x: clamp(dragStart.current.posX + dx, 10, window.innerWidth - PET_SIZE - 10),
+        y: clamp(dragStart.current.posY + dy, 10, window.innerHeight - PET_SIZE - 10),
+      });
+    }
+  };
+
+  const handlePointerUp = () => {
+    const wasDragging = movedRef.current;
+    dragStart.current = null;
+    setDragging(false);
+
+    if (!wasDragging) {
+      handlePoke();
+    }
   };
 
   if (!user || !pos) return null;
@@ -176,10 +262,12 @@ export default function PetWidget() {
         style={{
           left: pos.x,
           top: pos.y,
-          transition: 'left 3.5s ease-in-out, top 3.5s ease-in-out',
+          transition: dragging
+            ? 'none'
+            : 'left 3.5s ease-in-out, top 3.5s ease-in-out',
         }}
       >
-        {message && (
+        {message ? (
           <div className="pet-bubble pointer-events-auto max-w-[200px] card p-3 flex items-start gap-2">
             <p className="text-[12px] text-neutral-700 leading-snug flex-1">
               {message}
@@ -191,22 +279,41 @@ export default function PetWidget() {
               <X size={13} />
             </button>
           </div>
-        )}
+        ) : thinking ? (
+          <div className="pet-bubble pointer-events-auto card p-2.5 flex items-center gap-1">
+            <span className="pet-dot w-1.5 h-1.5 rounded-full bg-neutral-300" style={{ animationDelay: '0ms' }} />
+            <span className="pet-dot w-1.5 h-1.5 rounded-full bg-neutral-300" style={{ animationDelay: '150ms' }} />
+            <span className="pet-dot w-1.5 h-1.5 rounded-full bg-neutral-300" style={{ animationDelay: '300ms' }} />
+          </div>
+        ) : null}
 
-        <button
-          onClick={handleClick}
-          onContextMenu={handleContextMenu}
-          className={`pointer-events-auto w-12 h-12 rounded-full bg-gradient-to-b from-blue-500 to-blue-600 shadow-lg flex items-center justify-center text-white ${
-            wandering ? 'pet-float' : ''
-          }`}
-          title="캐릭터 (우클릭: 메뉴)"
-        >
-          <CharacterIcon
-            stage={user.character_stage}
-            size={22}
-            strokeWidth={1.75}
-          />
-        </button>
+        <div className="relative">
+          {showHeart && (
+            <Heart
+              size={16}
+              className="heart-pop absolute -top-1 left-1/2 -translate-x-1/2 text-pink-500 fill-pink-500 pointer-events-none"
+            />
+          )}
+          <button
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onClick={() => {
+              if (!movedRef.current) handlePoke();
+            }}
+            onContextMenu={handleContextMenu}
+            className={`pointer-events-auto w-12 h-12 rounded-full bg-gradient-to-b from-blue-500 to-blue-600 shadow-lg flex items-center justify-center text-white cursor-grab active:cursor-grabbing touch-none ${
+              happy ? 'pet-happy' : poked ? 'pet-poke' : !dragging && wandering ? 'pet-float' : ''
+            }`}
+            title="캐릭터 (우클릭: 메뉴 / 드래그: 이동)"
+          >
+            <CharacterIcon
+              stage={user.character_stage}
+              size={22}
+              strokeWidth={1.75}
+            />
+          </button>
+        </div>
       </div>
 
       {menu && (

@@ -3,6 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useAppData } from '@/lib/useAppData';
 import { supabase } from '@/lib/supabase';
+import {
+  getNotificationPermission,
+  isNotificationSupported,
+  requestNotificationPermission,
+} from '@/lib/notifications';
 import TopBar from '@/components/TopBar';
 
 export default function SettingsPage() {
@@ -12,6 +17,9 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [petQuiet, setPetQuiet] = useState(false);
+  const [notifPermission, setNotifPermission] = useState<
+    NotificationPermission | 'unsupported'
+  >('unsupported');
 
   useEffect(() => {
     if (user) {
@@ -22,12 +30,18 @@ export default function SettingsPage() {
 
   useEffect(() => {
     setPetQuiet(localStorage.getItem('petQuiet') === 'true');
+    setNotifPermission(getNotificationPermission());
   }, []);
 
   const togglePetQuiet = () => {
     const next = !petQuiet;
     setPetQuiet(next);
     localStorage.setItem('petQuiet', String(next));
+  };
+
+  const handleEnableNotifications = async () => {
+    const result = await requestNotificationPermission();
+    setNotifPermission(result);
   };
 
   if (loading) return null;
@@ -134,6 +148,39 @@ export default function SettingsPage() {
               }`}
             />
           </button>
+        </div>
+
+        <div className="mt-6 card p-6 flex items-center justify-between">
+          <div>
+            <h3 className="text-[13px] font-semibold text-neutral-900 mb-1">
+              브라우저 알림
+            </h3>
+            <p className="text-[12px] text-neutral-500">
+              탭이 열려있는 동안 잔소리·칭찬을 OS 알림으로도 받습니다.
+            </p>
+          </div>
+          {isNotificationSupported() ? (
+            notifPermission === 'granted' ? (
+              <span className="text-[12px] font-semibold text-blue-600 shrink-0">
+                켜짐
+              </span>
+            ) : notifPermission === 'denied' ? (
+              <span className="text-[12px] font-semibold text-neutral-400 shrink-0">
+                차단됨
+              </span>
+            ) : (
+              <button
+                onClick={handleEnableNotifications}
+                className="text-[12px] font-semibold text-blue-600 hover:text-blue-700 shrink-0"
+              >
+                켜기
+              </button>
+            )
+          ) : (
+            <span className="text-[12px] text-neutral-400 shrink-0">
+              미지원 브라우저
+            </span>
+          )}
         </div>
 
         <div className="mt-6 card p-6">
