@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import MobileTabBar from './MobileTabBar';
 import SwipeNav from './SwipeNav';
+import PetWidget from './PetWidget';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -20,6 +21,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <SwipeNav>{children}</SwipeNav>
       </main>
       <MobileTabBar />
+      <PetWidget />
     </div>
   );
 }

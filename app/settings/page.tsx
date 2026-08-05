@@ -11,6 +11,7 @@ export default function SettingsPage() {
   const [workAddr, setWorkAddr] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [petQuiet, setPetQuiet] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -18,6 +19,16 @@ export default function SettingsPage() {
       setWorkAddr(user.work_address || '');
     }
   }, [user]);
+
+  useEffect(() => {
+    setPetQuiet(localStorage.getItem('petQuiet') === 'true');
+  }, []);
+
+  const togglePetQuiet = () => {
+    const next = !petQuiet;
+    setPetQuiet(next);
+    localStorage.setItem('petQuiet', String(next));
+  };
 
   if (loading) return null;
   if (!user) {
@@ -99,6 +110,29 @@ export default function SettingsPage() {
             className="w-full py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-[10px] text-[13px] font-semibold disabled:opacity-50 transition-colors"
           >
             {saving ? '저장 중...' : saved ? '저장됨 ✓' : '저장'}
+          </button>
+        </div>
+
+        <div className="mt-6 card p-6 flex items-center justify-between">
+          <div>
+            <h3 className="text-[13px] font-semibold text-neutral-900 mb-1">
+              캐릭터 조용히 모드
+            </h3>
+            <p className="text-[12px] text-neutral-500">
+              캐릭터가 먼저 말 거는 선톡을 끕니다.
+            </p>
+          </div>
+          <button
+            onClick={togglePetQuiet}
+            className={`w-11 h-6 rounded-full relative transition-colors shrink-0 ${
+              petQuiet ? 'bg-neutral-300' : 'bg-blue-500'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                petQuiet ? 'translate-x-0.5' : 'translate-x-5'
+              }`}
+            />
           </button>
         </div>
 
