@@ -41,7 +41,9 @@ export function claimQuestReward(quest: QuestProgress, ledger: QuestClaimLedger)
   const claims = new Set(ledger.claimKeys); const rewarded = new Set(ledger.rewardedRecordIds);
   if (!quest.completed) return { accepted: false, expAwarded: 0, ledger, reason: 'incomplete' };
   if (claims.has(quest.claimKey)) return { accepted: false, expAwarded: 0, ledger, reason: 'already-claimed' };
-  const requiredIds = quest.sourceRecordIds.slice(0, quest.target);
+  // 퀘스트 키별로 네임스페이스를 둔다. 그렇지 않으면 같은 출근 기록이 daily_commute 보상에
+  // 먼저 쓰였을 때 그 기록을 포함하는 weekly_commutes가 영원히 "이미 보상받음"으로 막혀버린다.
+  const requiredIds = quest.sourceRecordIds.slice(0, quest.target).map((id) => `${quest.key}:${id}`);
   if (requiredIds.some((id) => rewarded.has(id))) return { accepted: false, expAwarded: 0, ledger, reason: 'records-already-rewarded' };
   claims.add(quest.claimKey); requiredIds.forEach((id) => rewarded.add(id));
   return { accepted: true, expAwarded: quest.rewardExp, ledger: { claimKeys: [...claims], rewardedRecordIds: [...rewarded] } };

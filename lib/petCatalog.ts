@@ -26,12 +26,23 @@ export const PET_ACCESSORIES: PetAccessory[] = [
   { id: 'streak-scarf', name: '연속 출근 목도리', emoji: '◆', description: '7일 연속 출근 보상', unlock: { type: 'badge', badgeKey: 'streak_7' } },
   { id: 'quest-star', name: '퀘스트 별', emoji: '★', description: '주간 출근 퀘스트 보상', unlock: { type: 'quest', questKey: 'weekly_commutes' } },
   { id: 'early-bell', name: '정시 벨', emoji: '●', description: '일일 정시 출근 퀘스트 보상', unlock: { type: 'quest', questKey: 'daily_on_time' } },
+  { id: 'door-key', name: '탈출 열쇠', emoji: '🔑', description: '첫 퇴근 배지 보상', unlock: { type: 'badge', badgeKey: 'first_escape' } },
+  { id: 'rain-boots', name: '레인부츠', emoji: '👢', description: '궂은 날 출근 배지 보상', unlock: { type: 'badge', badgeKey: 'weather_runner' } },
+  { id: 'monday-medal', name: '월요일 메달', emoji: '🥇', description: '월요병 생존자 배지 보상', unlock: { type: 'badge', badgeKey: 'monday_survivor' } },
+  { id: 'friday-shades', name: '불금 선글라스', emoji: '🕶️', description: '히든 배지 보상', unlock: { type: 'badge', badgeKey: 'hidden_friday' } },
+  { id: 'speed-sneakers', name: '스피드 스니커즈', emoji: '👟', description: '히든 배지 보상', unlock: { type: 'badge', badgeKey: 'hidden_speed' } },
+  { id: 'legend-cape', name: '전설의 망토', emoji: '🦸', description: '30일 연속 출근 전설 배지 보상', unlock: { type: 'badge', badgeKey: 'streak_30' } },
+  { id: 'round-trip-medal', name: '왕복 챌린지 메달', emoji: '🏅', description: '주간 왕복 챌린지 퀘스트 보상', unlock: { type: 'quest', questKey: 'weekly_round_trips' } },
 ];
 
 export function isAccessoryUnlocked(accessory: PetAccessory, level: number, badges: ReadonlySet<string>, quests: ReadonlySet<string>) {
   if (accessory.unlock.type === 'level') return level >= accessory.unlock.level;
   if (accessory.unlock.type === 'badge') return badges.has(accessory.unlock.badgeKey);
   return quests.has(accessory.unlock.questKey);
+}
+
+export function getAccessoryById(id: string | null): PetAccessory | undefined {
+  return id ? PET_ACCESSORIES.find((item) => item.id === id) : undefined;
 }
 
 export const DEFAULT_PET_ID: PetId = 'cat';
@@ -51,3 +62,16 @@ export function readStoredPetId(): PetId { if (typeof window === 'undefined') re
 export function storePetId(petId: PetId): void { if (typeof window === 'undefined') return; window.localStorage.setItem(PET_STORAGE_KEY, petId); window.dispatchEvent(new CustomEvent<PetId>(PET_CHANGED_EVENT, { detail: petId })); }
 function subscribeToPet(callback: () => void) { if (typeof window === 'undefined') return () => undefined; window.addEventListener(PET_CHANGED_EVENT, callback); window.addEventListener('storage', callback); return () => { window.removeEventListener(PET_CHANGED_EVENT, callback); window.removeEventListener('storage', callback); }; }
 export function useSelectedPetId(): PetId { return useSyncExternalStore(subscribeToPet, readStoredPetId, () => DEFAULT_PET_ID); }
+
+export const ACCESSORY_STORAGE_KEY = 'commute-battle:equipped-accessory';
+export const ACCESSORY_CHANGED_EVENT = 'commute-battle:accessory-changed';
+
+export function readStoredAccessoryId(): string | null { if (typeof window === 'undefined') return null; return window.localStorage.getItem(ACCESSORY_STORAGE_KEY); }
+export function storeAccessoryId(accessoryId: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (accessoryId) window.localStorage.setItem(ACCESSORY_STORAGE_KEY, accessoryId);
+  else window.localStorage.removeItem(ACCESSORY_STORAGE_KEY);
+  window.dispatchEvent(new CustomEvent<string | null>(ACCESSORY_CHANGED_EVENT, { detail: accessoryId }));
+}
+function subscribeToAccessory(callback: () => void) { if (typeof window === 'undefined') return () => undefined; window.addEventListener(ACCESSORY_CHANGED_EVENT, callback); window.addEventListener('storage', callback); return () => { window.removeEventListener(ACCESSORY_CHANGED_EVENT, callback); window.removeEventListener('storage', callback); }; }
+export function useEquippedAccessoryId(): string | null { return useSyncExternalStore(subscribeToAccessory, readStoredAccessoryId, () => null); }

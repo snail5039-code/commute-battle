@@ -82,6 +82,12 @@ export default function CommuteButton({
   const returnCount = records.filter(
     (r) => r.date === today && r.type === 'return'
   ).length;
+  const earlyLeaveCount = records.filter(
+    (r) => r.date === today && r.type === 'early_leave'
+  ).length;
+  const vacationCount = records.filter(
+    (r) => r.date === today && r.type === 'vacation'
+  ).length;
 
   useEffect(() => {
     const saved = loadWorkSchedule(user.id);
@@ -343,20 +349,22 @@ export default function CommuteButton({
         <div className="grid grid-cols-2 gap-2.5 pt-1">
           <button
             onClick={() => recordSimpleEvent('early_leave')}
-            disabled={!!loadingAction}
+            disabled={!!loadingAction || commuteCount === 0 || earlyLeaveCount > 0}
+            title={commuteCount === 0 ? '출근 후에 조퇴를 기록할 수 있어요' : earlyLeaveCount > 0 ? '조퇴는 하루에 한 번만 기록할 수 있어요' : undefined}
             className="flex items-center justify-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 py-2.5 text-[12px] font-bold text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-50"
           >
             <span className="flex size-7 items-center justify-center rounded-lg bg-white text-amber-700 ring-1 ring-amber-100"><Clock3 size={15} strokeWidth={2.25} /></span>
-            {loadingAction === 'early_leave' ? '기록 중...' : '조퇴'}
+            {loadingAction === 'early_leave' ? '기록 중...' : earlyLeaveCount > 0 ? '조퇴 완료' : '조퇴'}
           </button>
 
           <button
             onClick={() => recordSimpleEvent('vacation')}
-            disabled={!!loadingAction}
+            disabled={!!loadingAction || vacationCount > 0 || returnCount > 0}
+            title={returnCount > 0 ? '퇴근 후에는 휴가를 기록할 수 없어요' : vacationCount > 0 ? '휴가는 하루에 한 번만 기록할 수 있어요' : undefined}
             className="flex items-center justify-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 py-2.5 text-[12px] font-bold text-teal-700 transition-colors hover:bg-teal-100 disabled:opacity-50"
           >
             <span className="flex size-7 items-center justify-center rounded-lg bg-white text-teal-700 ring-1 ring-teal-100"><Palmtree size={15} strokeWidth={2.25} /></span>
-            {loadingAction === 'vacation' ? '기록 중...' : '휴가'}
+            {loadingAction === 'vacation' ? '기록 중...' : vacationCount > 0 ? '휴가 완료' : '휴가'}
           </button>
         </div>
       </div>

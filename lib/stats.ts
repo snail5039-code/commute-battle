@@ -37,6 +37,20 @@ export function getPeriodRange(period: StatsPeriod, anchor: Date, offset = 0): P
   return { start, end, label: `${start.getFullYear()}년` };
 }
 
+// 하루에 출근 기록이 여러 번이면(퇴근 후 일이 생겨 재출근 등) 가장 이른 기록만 그날의
+// 실제 출근으로 보고 지각 평가 대상에 넣는다. 그렇지 않으면 재출근이 늦은 시각 도착으로
+// 잡혀 지각률에 잘못 반영된다.
+function firstCommutePerDay(records: CommuteRecord[]) {
+  const byDate = new Map<string, CommuteRecord>();
+  for (const record of records) {
+    const existing = byDate.get(record.date);
+    if (!existing || new Date(record.start_time!).getTime() < new Date(existing.start_time!).getTime()) {
+      byDate.set(record.date, record);
+    }
+  }
+  return [...byDate.values()];
+}
+
 function rawField(record: CommuteRecord, names: string[]) {
   const raw = record as unknown as Record<string, unknown>;
   for (const name of names) if (typeof raw[name] === 'string' && raw[name]) return String(raw[name]);
@@ -83,7 +97,7 @@ export function computePeriodStats(records: CommuteRecord[], period: StatsPeriod
   const returnArrivals = monthRecords.filter((record) => record.type === 'return');
   const commuteDurations = commuteArrivals.map((record) => record.duration_minutes!).filter(Number.isFinite);
   const returnDurations = returnArrivals.map((record) => record.duration_minutes!).filter(Number.isFinite);
-  const evaluations = commuteArrivals.map((record) => {
+  const evaluations = firstCommutePerDay(commuteArrivals).map((record) => {
     const arrival = minutesOfDay(record.end_time);
     const day = getWorkdaySchedule(schedule, dateAt(record.date));
     return arrival === null || day.mode !== 'office' ? null : arrival - workTimeToMinutes(day.startTime);

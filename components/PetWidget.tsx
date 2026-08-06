@@ -19,9 +19,14 @@ import { getTimeSegment, PET_SMALL_TALK_LINES, pickPetLine, recordCoachLines } f
 import { loadLocalSettings } from '@/lib/store';
 import { STAGE_NAMES } from '@/lib/characterStages';
 import { showOsNotification } from '@/lib/notifications';
+import { getBadgeSummary } from '@/lib/badges';
+import { readQuestLedger } from '@/lib/quests';
 import CharacterIcon from './CharacterIcon';
 import {
+  getAccessoryById,
+  isAccessoryUnlocked,
   PET_CATALOG,
+  useEquippedAccessoryId,
   useSelectedPetId,
 } from '@/lib/petCatalog';
 
@@ -61,6 +66,7 @@ export default function PetWidget() {
   const [poked, setPoked] = useState(false);
   const [showHeart, setShowHeart] = useState(false);
   const petId = useSelectedPetId();
+  const equippedAccessoryId = useEquippedAccessoryId();
 
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevStage = useRef<string | null>(null);
@@ -308,6 +314,10 @@ export default function PetWidget() {
   if (!user || !pos) return null;
 
   const pet = PET_CATALOG[petId];
+  const equippedAccessory = getAccessoryById(equippedAccessoryId);
+  const completedBadges = new Set(getBadgeSummary(records).progress.filter((item) => item.completed).map((item) => item.badge.key));
+  const completedQuests = new Set(readQuestLedger().claimKeys.map((key) => key.split(':')[0]));
+  const accessoryEmoji = equippedAccessory && isAccessoryUnlocked(equippedAccessory, user.character_level, completedBadges, completedQuests) ? equippedAccessory.emoji : undefined;
 
   return (
     <>
@@ -377,6 +387,7 @@ export default function PetWidget() {
               petId={petId}
               size={22}
               strokeWidth={1.75}
+              accessoryEmoji={accessoryEmoji}
             />
           </button>
         </div>

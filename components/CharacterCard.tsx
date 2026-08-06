@@ -5,7 +5,8 @@ import { ChevronRight, LockKeyhole } from 'lucide-react';
 import { CommuteRecord, User } from '@/lib/types';
 import { getBadgeSummary } from '@/lib/badges';
 import { getExpNeeded, NEXT_EVOLUTION } from '@/lib/characterStages';
-import { PET_CATALOG, PET_IDS, storePetId, useSelectedPetId, type PetId } from '@/lib/petCatalog';
+import { getAccessoryById, isAccessoryUnlocked, PET_CATALOG, PET_IDS, storePetId, useEquippedAccessoryId, useSelectedPetId, type PetId } from '@/lib/petCatalog';
+import { readQuestLedger } from '@/lib/quests';
 import BadgeIcon from './BadgeIcon';
 import CharacterIcon from './CharacterIcon';
 
@@ -25,6 +26,12 @@ export default function CharacterCard({ user, records, selectedPetId, onPetChang
   const { progress, completed: badgeCount, total: badgeTotal } = getBadgeSummary(records);
   const upNext = progress.filter((item) => !item.completed).sort((a, b) => b.percent - a.percent || a.badge.target - b.badge.target).slice(0, 3);
 
+  const equippedAccessoryId = useEquippedAccessoryId();
+  const equippedAccessory = getAccessoryById(equippedAccessoryId);
+  const completedBadges = new Set(progress.filter((item) => item.completed).map((item) => item.badge.key));
+  const completedQuests = new Set(readQuestLedger().claimKeys.map((key) => key.split(':')[0]));
+  const accessoryEmoji = equippedAccessory && isAccessoryUnlocked(equippedAccessory, user.character_level, completedBadges, completedQuests) ? equippedAccessory.emoji : undefined;
+
   const selectPet = (nextPetId: PetId) => {
     storePetId(nextPetId);
     onPetChange?.(nextPetId);
@@ -34,7 +41,7 @@ export default function CharacterCard({ user, records, selectedPetId, onPetChang
     <div className="card h-full p-5">
       <div className="flex items-center gap-4">
         <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 ring-1 ring-black/[0.04]" style={{ backgroundColor: pet.softColor }}>
-          <CharacterIcon stage={user.character_stage} petId={petId} size={28} strokeWidth={1.75} />
+          <CharacterIcon stage={user.character_stage} petId={petId} size={28} strokeWidth={1.75} accessoryEmoji={accessoryEmoji} />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-2">
