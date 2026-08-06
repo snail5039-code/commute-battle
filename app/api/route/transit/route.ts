@@ -92,6 +92,10 @@ function distance(a: Point, b: Point) {
   return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(h));
 }
 
+function polylineDistance(points: Point[]) {
+  return points.slice(1).reduce((total, point, index) => total + distance(points[index], point), 0);
+}
+
 async function json(url: URL, provider: Provider) {
   const response = await fetch(url, { headers: { Referer: 'https://commute-battle.vercel.app' } });
   const data = await response.json().catch(() => null);
@@ -234,6 +238,40 @@ async function roadReference(start: Point, end: Point, key: string): Promise<Poi
   }));
   if (points.length < 2) throw new ProviderError('tmap', 'ROUTE_NOT_FOUND', 404, '도로 참고선 좌표를 받지 못했습니다.');
   return points;
+}
+
+async function estimatedTransitReference(start: Point, end: Point, key: string) {
+  const points = await roadReference(start, end, key);
+  const totalDistance = Math.max(1, Math.round(polylineDistance(points)));
+  const totalTime = Math.max(1, Math.round((totalDistance / 1000) / 45 * 60));
+  const segment: Segment = {
+    trafficType: 2,
+    providerTrafficType: 2,
+    label: '대중교통 참고 경로',
+    instruction: '상세 대중교통 안내를 기준으로 이동해 주세요.',
+    distance: totalDistance,
+    sectionTime: totalTime,
+    points,
+    geometrySource: 'tmap-road-reference',
+    estimatedGeometry: true,
+  };
+  return {
+    summary: {
+      totalTime,
+      totalDistance,
+      totalWalk: 0,
+      payment: 0,
+      firstStartStation: null,
+      lastEndStation: null,
+      transferCount: 0,
+    },
+    segments: [segment],
+    polyline: points,
+    intelligence: analyzeRoute([segment], []),
+    isEstimated: true,
+    provider: 'tmap-reference',
+    notice: '상세 경로 좌표를 받지 못해 도로를 따라 참고용 점선 경로를 표시합니다.',
+  };
 }
 
 async function enrichRoadReferenceSegments(segments: Segment[], key?: string): Promise<Segment[]> {
@@ -442,6 +480,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ...candidates[0], candidates });
   } catch (error) {
     console.error('Route lookup failed:', error);
+    if (mode === 'transit' && tmapKey) {
+      try {
+        return NextResponse.json(await estimatedTransitReference(start, end, tmapKey));
+      } catch (referenceError) {
+        console.warn('TMAP transit reference unavailable:', referenceError);
+      }
+    }
     if (error instanceof ProviderError) return NextResponse.json({ error: error.message, code: error.code, provider: error.provider, fallback: fallback(start, end) }, { status: error.status });
     return NextResponse.json({ error: '대중교통 경로를 찾지 못했습니다.', code: 'ROUTE_LOOKUP_FAILED', fallback: fallback(start, end) }, { status: 502 });
   }
