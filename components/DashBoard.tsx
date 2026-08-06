@@ -10,6 +10,8 @@ import BadgesWidget from './BadgesWidget';
 import CalendarView from './CalendarView';
 import CharacterCard from './CharacterCard';
 import CommuteButton from './CommuteButton';
+import DashboardCommunityPreview from './DashboardCommunityPreview';
+import DashboardSettingsShortcuts from './DashboardSettingsShortcuts';
 import StatsSummaryWidget from './StatsSummaryWidget';
 import TopBar from './TopBar';
 
@@ -40,6 +42,8 @@ export default function DashBoard() {
         <CommuteButton user={user} records={records} onChange={refetch} />
         <CharacterCard user={user} />
         <StatsSummaryWidget records={records} />
+        <DashboardSettingsShortcuts />
+        <DashboardCommunityPreview />
 
         <section className="card p-5 sm:col-span-2 lg:col-span-1" aria-label="오늘의 근무 시간">
           <div className="flex items-center gap-2"><Clock3 size={17} className="text-blue-600"/><h3 className="text-sm font-bold">근무 시간</h3></div>

@@ -15,7 +15,7 @@ import LogoutButton from './LogoutButton';
 
 export type SettingsSectionId = 'work' | 'route' | 'notifications' | 'pet' | 'ai-privacy' | 'account';
 
-const sections: Array<{ id: SettingsSectionId; label: string; icon: typeof BriefcaseBusiness }> = [
+export const SETTINGS_SECTIONS: Array<{ id: SettingsSectionId; label: string; icon: typeof BriefcaseBusiness }> = [
   { id: 'work', label: '근무', icon: BriefcaseBusiness },
   { id: 'route', label: '경로', icon: MapPinned },
   { id: 'notifications', label: '알림', icon: Bell },
@@ -109,7 +109,7 @@ export default function SettingsSections(props: SettingsSectionsProps) {
   useEffect(() => {
     const load = () => {
       const fromHash = window.location.hash.slice(1) as SettingsSectionId;
-      if (sections.some((section) => section.id === fromHash)) setActive(fromHash);
+      if (SETTINGS_SECTIONS.some((section) => section.id === fromHash)) setActive(fromHash);
       setPreference(getRoutePreference());
       setLearning(isRouteLearningEnabled());
       setPetId(readStoredPetId());
@@ -163,7 +163,7 @@ export default function SettingsSections(props: SettingsSectionsProps) {
 
   return <div className="grid gap-5 lg:grid-cols-[14rem_minmax(0,1fr)]">
     <nav aria-label="설정 항목" className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
-      {sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => selectSection(id)} aria-current={active === id ? 'page' : undefined} className={`flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-left text-sm font-bold ${active === id ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><Icon size={17}/>{label}</button>)}
+      {SETTINGS_SECTIONS.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => selectSection(id)} aria-current={active === id ? 'page' : undefined} className={`flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-left text-sm font-bold ${active === id ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><Icon size={17}/>{label}</button>)}
     </nav>
     <div className="min-w-0">
       {active === 'work' && <section id="work" aria-labelledby="work-title" className="card p-5 md:p-7"><h2 id="work-title" className="text-lg font-bold">근무 설정</h2><p className="mt-1 text-sm text-slate-500">기본 주소, 근무 시간과 요일별 근무 형태를 관리합니다.</p>
