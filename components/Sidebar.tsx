@@ -11,7 +11,7 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-[88px] shrink-0 flex-col items-center border-r border-slate-200/80 bg-white/90 py-4 backdrop-blur-xl md:flex">
+    <aside className="sticky top-0 z-50 hidden h-screen w-[88px] shrink-0 flex-col items-center border-r border-slate-200/80 bg-white/90 py-4 backdrop-blur-xl md:flex">
       <Link href="/" className="group relative flex size-12 items-center justify-center rounded-2xl text-slate-950" aria-label="출퇴근 생존일지 홈">
         <StatusIcon icon={Siren} inverted className="bg-gradient-to-br from-sky-500 via-blue-600 to-indigo-600 shadow-lg shadow-blue-200/70 transition-transform group-hover:-translate-y-0.5" />
         <span className="sidebar-tooltip">출퇴근 생존일지</span>

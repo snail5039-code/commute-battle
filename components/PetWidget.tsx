@@ -312,7 +312,7 @@ export default function PetWidget() {
   return (
     <>
       <div
-        className="fixed z-30 pointer-events-none"
+        className="fixed z-50 pointer-events-none"
         style={{
           left: pos.x,
           top: pos.y,
@@ -384,7 +384,7 @@ export default function PetWidget() {
 
       {menu && (
         <div
-          className="fixed z-40 card p-1.5 min-w-[120px]"
+          className="fixed z-[60] card p-1.5 min-w-[120px]"
           style={{ left: menu.x, top: menu.y }}
           onClick={(e) => e.stopPropagation()}
         >
