@@ -1,13 +1,13 @@
 import { supabase } from './supabase';
 import { isCommuteOnTime, isReturnOnTime } from './onTime';
-import { getExpNeeded, getStageForLevel } from './characterStages';
+import { applyExpReward, type LevelProgress } from './characterStages';
 import { CommuteRecord, User } from './types';
 
 export async function recordArrival(
   user: User,
   records: CommuteRecord[],
   activeRecord: CommuteRecord
-) {
+): Promise<LevelProgress> {
   const arrivedAt = new Date();
   const start = new Date(activeRecord.start_time!);
   const duration = Math.round((arrivedAt.getTime() - start.getTime()) / 60000);
@@ -33,21 +33,56 @@ export async function recordArrival(
 
   if (error) throw error;
 
-  let newLevel = user.character_level;
-  let newExp = user.character_exp + expGained;
-  while (newExp >= getExpNeeded(newLevel)) {
-    newExp -= getExpNeeded(newLevel);
-    newLevel += 1;
-  }
-  const newStage = getStageForLevel(newLevel);
+  const progress = applyExpReward(user.character_level, user.character_exp, expGained);
 
   await supabase
     .from('users')
     .update({
-      character_level: newLevel,
-      character_exp: newExp,
-      character_stage: newStage,
+      character_level: progress.level,
+      character_exp: progress.exp,
+      character_stage: progress.stage,
       total_commute_arrivals: (user.total_commute_arrivals || 0) + 1,
     })
     .eq('id', user.id);
+
+  return progress;
+}
+
+// 재택근무일에는 이동이 없으므로 출발/도착 단계를 나누지 않고 한 번에 완료 처리한다
+// (집 컴퓨터 앞에 앉는 순간이 곧 출근/퇴근이므로 지각 판정도 적용하지 않는다).
+export async function recordInstantTrip(
+  user: User,
+  type: 'commute' | 'return'
+): Promise<LevelProgress> {
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+  const expGained = 15;
+
+  const { error } = await supabase.from('commute_records').insert({
+    user_id: user.id,
+    date: today,
+    type,
+    commute_subtype: 'arrival',
+    start_time: now.toISOString(),
+    end_time: now.toISOString(),
+    duration_minutes: 0,
+    is_on_time: true,
+    exp_gained: expGained,
+  });
+
+  if (error) throw error;
+
+  const progress = applyExpReward(user.character_level, user.character_exp, expGained);
+
+  await supabase
+    .from('users')
+    .update({
+      character_level: progress.level,
+      character_exp: progress.exp,
+      character_stage: progress.stage,
+      total_commute_arrivals: type === 'commute' ? (user.total_commute_arrivals || 0) + 1 : user.total_commute_arrivals,
+    })
+    .eq('id', user.id);
+
+  return progress;
 }

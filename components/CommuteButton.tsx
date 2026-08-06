@@ -5,14 +5,17 @@ import { useRouter } from 'next/navigation';
 import { Clock3, Palmtree, Check, MapPin, TrainFront, House, PartyPopper, LoaderCircle } from 'lucide-react';
 import { User, CommuteRecord, RouteGuideResponse } from '@/lib/types';
 import { generateRouteGuide } from '@/lib/gemini';
-import { recordArrival } from '@/lib/commuteArrival';
+import { recordArrival, recordInstantTrip } from '@/lib/commuteArrival';
 import { supabase } from '@/lib/supabase';
 import RouteModal from './RouteModal';
 import WeatherCard from './WeatherCard';
 import DepartureRecommendation from './DepartureRecommendation';
+import EvolutionCelebration from './EvolutionCelebration';
 import { geocodeAddress, loadKakaoMapSdk } from '@/lib/kakaoMap';
 import { fetchWeather, recommendDeparture, WEATHER_FALLBACK, WeatherResponse } from '@/lib/weather';
 import { getWorkdaySchedule, loadWorkSchedule, useStore } from '@/lib/store';
+import { useSelectedPetId } from '@/lib/petCatalog';
+import type { LevelProgress } from '@/lib/characterStages';
 
 interface CommuteButtonProps {
   user: User;
@@ -66,8 +69,10 @@ export default function CommuteButton({
   const [now, setNow] = useState(() => new Date());
   const [weather, setWeather] = useState<WeatherResponse>(WEATHER_FALLBACK);
   const [weatherLoading, setWeatherLoading] = useState(true);
+  const [celebration, setCelebration] = useState<LevelProgress | null>(null);
   const storedSchedule = useStore((state) => state.workSchedule);
   const setStoredSchedule = useStore((state) => state.setWorkSchedule);
+  const petId = useSelectedPetId();
 
   const today = new Date().toISOString().split('T')[0];
   const activeRecord = records.find(
@@ -173,6 +178,27 @@ export default function CommuteButton({
     }
   };
 
+  // 재택근무일엔 이동이 없으므로 경로 안내 없이 바로 완료 처리한다 (집 컴퓨터 앞에 앉는 순간이 출근/퇴근)
+  const recordRemoteEvent = async (type: 'commute' | 'return') => {
+    setLoadingAction(type);
+    try {
+      const progress = await recordInstantTrip(user, type);
+      onChange();
+      if (progress.levelsGained > 0) setCelebration(progress);
+    } catch (error) {
+      console.error('Error recording remote work event:', error);
+      alert('기록에 실패했습니다');
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handlePrimaryAction = (type: 'commute' | 'return') => {
+    if (workday.mode === 'off') return;
+    if (workday.mode === 'remote') { void recordRemoteEvent(type); return; }
+    void requestRoute(type);
+  };
+
   const recordSimpleEvent = async (
     type: 'early_leave' | 'vacation' | 'absence'
   ) => {
@@ -201,8 +227,9 @@ export default function CommuteButton({
     setLoadingAction('arrive');
 
     try {
-      await recordArrival(user, records, activeRecord);
+      const progress = await recordArrival(user, records, activeRecord);
       onChange();
+      if (progress.levelsGained > 0) setCelebration(progress);
     } catch (error) {
       console.error('Error recording arrival:', error);
       alert('도착 기록에 실패했습니다');
@@ -232,15 +259,17 @@ export default function CommuteButton({
     ? (activeRecord.type === 'commute' ? commuteCount : returnCount)
     : 0;
 
-  const statusText = activeRecord
-    ? activeRecord.type === 'commute'
-      ? `${activeOrdinal >= 2 ? `오늘 ${activeOrdinal}번째 ` : ''}출근 중입니다`
-      : `${activeOrdinal >= 2 ? `오늘 ${activeOrdinal}번째 ` : ''}퇴근 중입니다`
-    : commuteCount > 0 && returnCount === 0
-      ? '근무 중입니다'
-      : commuteCount > 0 && returnCount > 0
-        ? '오늘 근무를 마쳤습니다'
-        : '출근 전입니다';
+  const statusText = workday.mode === 'off'
+    ? '오늘은 휴무입니다'
+    : activeRecord
+      ? activeRecord.type === 'commute'
+        ? `${activeOrdinal >= 2 ? `오늘 ${activeOrdinal}번째 ` : ''}출근 중입니다`
+        : `${activeOrdinal >= 2 ? `오늘 ${activeOrdinal}번째 ` : ''}퇴근 중입니다`
+      : commuteCount > 0 && returnCount === 0
+        ? workday.mode === 'remote' ? '재택근무 중입니다' : '근무 중입니다'
+        : commuteCount > 0 && returnCount > 0
+          ? '오늘 근무를 마쳤습니다'
+          : workday.mode === 'remote' ? '재택근무 시작 전입니다' : '출근 전입니다';
 
   return (
     <>
@@ -259,10 +288,17 @@ export default function CommuteButton({
           </span>
         </div>
 
+        {workday.mode === 'off' && (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-center text-[13px] font-bold text-slate-500">
+            오늘은 휴무입니다!
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-2.5">
           <button
-            onClick={() => requestRoute('commute')}
-            disabled={!!loadingAction || !!activeRecord || commuteCount > returnCount}
+            onClick={() => handlePrimaryAction('commute')}
+            disabled={!!loadingAction || !!activeRecord || commuteCount > returnCount || workday.mode === 'off'}
+            title={workday.mode === 'off' ? '오늘은 휴무일이라 출근을 기록할 수 없어요' : undefined}
             className={`group relative flex min-h-24 flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border py-4 text-[12px] font-bold transition-all disabled:cursor-not-allowed ${
               commuteCount > 0
                 ? 'border-sky-100 bg-sky-50 text-sky-700 disabled:opacity-60'
@@ -277,12 +313,13 @@ export default function CommuteButton({
             <span className={`flex size-10 items-center justify-center rounded-xl ring-1 ring-inset ${commuteCount > 0 ? 'bg-white/90 ring-sky-100' : 'bg-white/15 ring-white/20'}`}>
               {loadingAction === 'commute' ? <LoaderCircle className="animate-spin" size={19} /> : commuteCount > 0 ? <Check size={19} strokeWidth={2.5} /> : <TrainFront size={20} strokeWidth={2.1} />}
             </span>
-            {loadingAction === 'commute' ? '조회 중...' : '출근하기'}
+            {loadingAction === 'commute' ? '조회 중...' : workday.mode === 'remote' ? '재택 출근' : '출근하기'}
           </button>
 
           <button
-            onClick={() => requestRoute('return')}
-            disabled={!!loadingAction || !!activeRecord || commuteCount <= returnCount}
+            onClick={() => handlePrimaryAction('return')}
+            disabled={!!loadingAction || !!activeRecord || commuteCount <= returnCount || workday.mode === 'off'}
+            title={workday.mode === 'off' ? '오늘은 휴무일이라 퇴근을 기록할 수 없어요' : undefined}
             className={`group relative flex min-h-24 flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border py-4 text-[12px] font-bold transition-all disabled:cursor-not-allowed ${
               returnCount > 0
                 ? 'border-indigo-100 bg-indigo-50 text-indigo-700 disabled:opacity-60'
@@ -297,7 +334,7 @@ export default function CommuteButton({
             <span className={`flex size-10 items-center justify-center rounded-xl ring-1 ring-inset ${returnCount > 0 ? 'bg-white/90 ring-indigo-100' : 'bg-white/15 ring-white/20'}`}>
               {loadingAction === 'return' ? <LoaderCircle className="animate-spin" size={19} /> : returnCount > 0 ? <Check size={19} strokeWidth={2.5} /> : <House size={20} strokeWidth={2.1} />}
             </span>
-            {loadingAction === 'return' ? '조회 중...' : '퇴근하기'}
+            {loadingAction === 'return' ? '조회 중...' : workday.mode === 'remote' ? '재택 퇴근' : '퇴근하기'}
           </button>
         </div>
 
@@ -349,8 +386,8 @@ export default function CommuteButton({
         <div className="grid grid-cols-2 gap-2.5 pt-1">
           <button
             onClick={() => recordSimpleEvent('early_leave')}
-            disabled={!!loadingAction || commuteCount === 0 || earlyLeaveCount > 0}
-            title={commuteCount === 0 ? '출근 후에 조퇴를 기록할 수 있어요' : earlyLeaveCount > 0 ? '조퇴는 하루에 한 번만 기록할 수 있어요' : undefined}
+            disabled={!!loadingAction || commuteCount === 0 || earlyLeaveCount > 0 || workday.mode === 'off'}
+            title={workday.mode === 'off' ? '오늘은 휴무일이에요' : commuteCount === 0 ? '출근 후에 조퇴를 기록할 수 있어요' : earlyLeaveCount > 0 ? '조퇴는 하루에 한 번만 기록할 수 있어요' : undefined}
             className="flex items-center justify-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 py-2.5 text-[12px] font-bold text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-50"
           >
             <span className="flex size-7 items-center justify-center rounded-lg bg-white text-amber-700 ring-1 ring-amber-100"><Clock3 size={15} strokeWidth={2.25} /></span>
@@ -359,8 +396,8 @@ export default function CommuteButton({
 
           <button
             onClick={() => recordSimpleEvent('vacation')}
-            disabled={!!loadingAction || vacationCount > 0 || returnCount > 0}
-            title={returnCount > 0 ? '퇴근 후에는 휴가를 기록할 수 없어요' : vacationCount > 0 ? '휴가는 하루에 한 번만 기록할 수 있어요' : undefined}
+            disabled={!!loadingAction || vacationCount > 0 || returnCount > 0 || workday.mode === 'off'}
+            title={workday.mode === 'off' ? '오늘은 휴무일이에요' : returnCount > 0 ? '퇴근 후에는 휴가를 기록할 수 없어요' : vacationCount > 0 ? '휴가는 하루에 한 번만 기록할 수 있어요' : undefined}
             className="flex items-center justify-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 py-2.5 text-[12px] font-bold text-teal-700 transition-colors hover:bg-teal-100 disabled:opacity-50"
           >
             <span className="flex size-7 items-center justify-center rounded-lg bg-white text-teal-700 ring-1 ring-teal-100"><Palmtree size={15} strokeWidth={2.25} /></span>
@@ -381,6 +418,16 @@ export default function CommuteButton({
             await onChange();
             router.push('/map');
           }}
+        />
+      )}
+
+      {celebration && (
+        <EvolutionCelebration
+          level={celebration.level}
+          stage={celebration.stage}
+          evolved={celebration.evolved}
+          petId={petId}
+          onClose={() => setCelebration(null)}
         />
       )}
     </>

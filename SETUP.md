@@ -26,6 +26,22 @@ http://localhost:3000
 
 ---
 
+## ✅ 8/6 세션 네 번째 라운드 (퀘스트 완료 모달)
+- 퀘스트 보상을 받으면 그냥 조용히 버튼만 "수령 완료"로 바뀌던 것 → 완료 축하 모달(퀘스트 이름 + 획득 EXP) 추가 (`components/QuestBoard.tsx`)
+
+---
+
+## ✅ 8/6 세션 세 번째 라운드에서 고친 것 (근무 형태 반영/펫 진화 시각화)
+
+- 설정의 요일별 근무 형태(출근/재택/휴무)가 대시보드 출퇴근 버튼에 실제로 반영되지 않던 문제 (`components/CommuteButton.tsx`)
+  - 휴무일: 출근/퇴근/조퇴/휴가 버튼 모두 비활성화 + "오늘은 휴무입니다!" 배너 표시
+  - 재택일: "출근"을 누르면 경로 안내 없이 바로 완료 처리(집 컴퓨터 앞에 앉는 순간이 출근이므로 이동 단계가 없음) — `lib/commuteArrival.ts`의 `recordInstantTrip` 추가, start_time=end_time=now로 즉시 기록
+- **펫이 진화해도 안 변한다는 피드백**: 사실 두 가지 문제가 겹쳐 있었음
+  1. 진화 축하 모달(`EvolutionCelebration.tsx`)이 배지 페이지의 퀘스트 보상 클레임에서만 떴고, 정작 EXP를 가장 많이 얻는 경로인 "무사 도착!"(`recordArrival`)에서는 레벨업/진화를 감지도, 축하도 하지 않았음 → `recordArrival`/`recordInstantTrip`이 `LevelProgress`를 반환하도록 바꾸고, `CommuteButton`에서 레벨업 시 축하 모달을 띄우도록 연결
+  2. 캐릭터 아이콘 자체가 4단계 내내 완전히 똑같았음(같은 lucide 아이콘, 같은 색, 코너의 작은 배지만 다름) → `lib/characterStages.ts`에 `STAGE_ICON_SCALE`(단계별 아이콘 크기 0.7→1.18배)과 `STAGE_RING_CLASS`(단계별 링/글로우: 무색 → 초록 → 파랑+글로우 → 금색+강한 글로우)를 추가해 `CharacterIcon`/`CharacterCard`/`PetWidget`/`EvolutionCelebration`에 적용
+
+---
+
 ## ✅ 8/6 세션 두 번째 라운드에서 고친 것 (조퇴/휴가/지각/액세서리)
 
 - **모바일에서 박스가 넘친다던 버그의 실체**: 이전 세션에서 못 찾았던 문제가 바로 이것이었음 — `DashBoard.tsx`의 "퇴근 경로 요약" 카드에서 `truncate` 텍스트를 담은 grid 아이템에 `min-w-0`이 없어서, grid 아이템 기본값(`min-width: auto`)이 긴 경로 문자열을 줄이지 않고 화면 밖으로 밀어냄. 그리드 컨테이너와 각 카드에 `min-w-0` 추가로 해결(`components/DashBoard.tsx`)

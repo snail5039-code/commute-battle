@@ -17,7 +17,7 @@ import {
 } from '@/lib/petTriggers';
 import { getTimeSegment, PET_SMALL_TALK_LINES, pickPetLine, recordCoachLines } from '@/lib/petMessages';
 import { loadLocalSettings } from '@/lib/store';
-import { STAGE_NAMES } from '@/lib/characterStages';
+import { STAGE_NAMES, STAGE_RING_CLASS } from '@/lib/characterStages';
 import { showOsNotification } from '@/lib/notifications';
 import { getBadgeSummary } from '@/lib/badges';
 import { readQuestLedger } from '@/lib/quests';
@@ -375,7 +375,7 @@ export default function PetWidget() {
               if (e.button === 0 && !movedRef.current) handlePoke();
             }}
             onContextMenu={handleContextMenu}
-            className={`absolute inset-0 pointer-events-auto w-12 h-12 rounded-full shadow-lg flex items-center justify-center cursor-grab active:cursor-grabbing touch-none ${
+            className={`absolute inset-0 pointer-events-auto w-12 h-12 rounded-full shadow-lg flex items-center justify-center cursor-grab active:cursor-grabbing touch-none transition-shadow ${STAGE_RING_CLASS[user.character_stage]} ${
               happy ? 'pet-happy' : poked ? 'pet-poke' : !dragging && wandering ? 'pet-float' : ''
             }`}
             style={{ backgroundColor: pet.softColor, color: pet.color }}

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { ChevronRight, LockKeyhole } from 'lucide-react';
 import { CommuteRecord, User } from '@/lib/types';
 import { getBadgeSummary } from '@/lib/badges';
-import { getExpNeeded, NEXT_EVOLUTION } from '@/lib/characterStages';
+import { getExpNeeded, NEXT_EVOLUTION, STAGE_RING_CLASS } from '@/lib/characterStages';
 import { getAccessoryById, isAccessoryUnlocked, PET_CATALOG, PET_IDS, storePetId, useEquippedAccessoryId, useSelectedPetId, type PetId } from '@/lib/petCatalog';
 import { readQuestLedger } from '@/lib/quests';
 import BadgeIcon from './BadgeIcon';
@@ -40,7 +40,7 @@ export default function CharacterCard({ user, records, selectedPetId, onPetChang
   return (
     <div className="card h-full p-5">
       <div className="flex items-center gap-4">
-        <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 ring-1 ring-black/[0.04]" style={{ backgroundColor: pet.softColor }}>
+        <div className={`w-14 h-14 rounded-full flex items-center justify-center shrink-0 transition-shadow ${STAGE_RING_CLASS[user.character_stage]}`} style={{ backgroundColor: pet.softColor }}>
           <CharacterIcon stage={user.character_stage} petId={petId} size={28} strokeWidth={1.75} accessoryEmoji={accessoryEmoji} />
         </div>
         <div className="flex-1 min-w-0">
