@@ -287,13 +287,15 @@ async function estimatedTransitReference(start: Point, end: Point, key: string) 
   return transitReferenceResponse(start, end, points, 'tmap-road-reference');
 }
 
-async function estimatedOdsayReference(path: OdsayPath, start: Point, end: Point, key: string) {
-  const rawSegments = await pathSegments(path, key);
-  const connected = connectSegmentPoints(start, end, fillMissingSegmentPoints(start, end, rawSegments));
+async function estimatedOdsayReference(path: OdsayPath, start: Point, end: Point, odsayKey: string, tmapKey?: string) {
+  const rawSegments = await pathSegments(path, odsayKey);
+  let connected = connectSegmentPoints(start, end, fillMissingSegmentPoints(start, end, rawSegments));
+  connected = await enrichRoadReferenceSegments(connected, tmapKey);
+  connected = await enrichWalkingSegments(connected, tmapKey);
   const segments = connected.map((segment) => ({
     ...segment,
     geometrySource: segment.geometrySource || (segment.trafficType === 3 ? 'endpoint-connector' : 'odsay'),
-    estimatedGeometry: true,
+    estimatedGeometry: segment.estimatedGeometry ?? true,
   } satisfies Segment));
   const polyline = compact(segments.flatMap((segment) => segment.points));
   if (polyline.length < 2) throw new Error('표시할 대중교통 경로 좌표가 없습니다.');
@@ -323,16 +325,24 @@ async function estimatedOdsayReference(path: OdsayPath, start: Point, end: Point
 
 async function enrichRoadReferenceSegments(segments: Segment[], key?: string): Promise<Segment[]> {
   return Promise.all(segments.map(async (segment) => {
-    if (!key || ![2, 5, 6].includes(segment.providerTrafficType || segment.trafficType)) return segment;
+    if (segment.trafficType === 3) return segment;
     if (segment.points.length > 2 && !segment.estimatedGeometry) return segment;
     const from = segment.points[0];
     const to = segment.points.at(-1);
     if (!from || !to) return segment;
+    if (key) {
+      try {
+        const points = await roadReference(from, to, key);
+        return { ...segment, points, geometrySource: 'tmap-road-reference', estimatedGeometry: true };
+      } catch (error) {
+        console.warn('TMAP road reference unavailable:', error);
+      }
+    }
     try {
-      const points = await roadReference(from, to, key);
-      return { ...segment, points, geometrySource: 'tmap-road-reference', estimatedGeometry: true };
+      const points = await osrmRoadReference(from, to);
+      return { ...segment, points, geometrySource: 'osrm-road-reference', estimatedGeometry: true };
     } catch (error) {
-      console.warn('TMAP road reference unavailable:', error);
+      console.warn('OSRM road reference unavailable:', error);
       return segment;
     }
   }));
@@ -530,7 +540,7 @@ export async function GET(req: NextRequest) {
     console.error('Route lookup failed:', error);
     if (mode === 'transit' && odsayKey && transitPaths.length) {
       try {
-        return NextResponse.json(await estimatedOdsayReference(transitPaths[0], start, end, odsayKey));
+        return NextResponse.json(await estimatedOdsayReference(transitPaths[0], start, end, odsayKey, tmapKey));
       } catch (referenceError) {
         console.warn('ODSAY transit reference unavailable:', referenceError);
       }
