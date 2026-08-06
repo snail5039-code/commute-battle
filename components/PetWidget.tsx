@@ -6,6 +6,7 @@ import { useAppData } from '@/lib/useAppData';
 import {
   generatePetMessage,
   generateIdleChat,
+  generateCoachMessage,
   generatePlayMessage,
   generatePokeMessage,
 } from '@/lib/gemini';
@@ -14,7 +15,7 @@ import {
   isPetQuiet,
   markSpokenToday,
 } from '@/lib/petTriggers';
-import { getTimeSegment, pickPetLine, recordCoachLines } from '@/lib/petMessages';
+import { getTimeSegment, PET_SMALL_TALK_LINES, pickPetLine, recordCoachLines } from '@/lib/petMessages';
 import { loadLocalSettings } from '@/lib/store';
 import { STAGE_NAMES } from '@/lib/characterStages';
 import { showOsNotification } from '@/lib/notifications';
@@ -168,16 +169,26 @@ export default function PetWidget() {
       return;
     }
 
-    const cooldown = frequency === 'frequent' ? 55_000 : 110_000;
-    const chance = frequency === 'frequent' ? 0.9 : 0.62;
+    const cooldown = frequency === 'frequent' ? 30_000 : 90_000;
+    const chance = frequency === 'frequent' ? 1 : 0.62;
+    const smallTalkCooldown = frequency === 'frequent' ? 45_000 : 140_000;
     const coachLines = recordCoachLines(records, now);
     if (!messageRef.current && coachLines.length && Date.now() - lastCoachAt.current > cooldown && Math.random() < chance) {
+      busy.current = true;
       lastCoachAt.current = Date.now();
-      speak(pickPetLine(coachLines));
+      const text = await generateCoachMessage(records, now, user.character_stage, coachLines);
+      speak(text);
+      busy.current = false;
       return;
     }
 
     const sinceLastIdle = Date.now() - lastIdleChatAt.current;
+    if (!messageRef.current && sinceLastIdle > smallTalkCooldown && Math.random() < (frequency === 'frequent' ? 0.75 : 0.35)) {
+      lastIdleChatAt.current = Date.now();
+      speak(pickPetLine(PET_SMALL_TALK_LINES));
+      return;
+    }
+
     if (
       !messageRef.current &&
       sinceLastIdle > cooldown &&

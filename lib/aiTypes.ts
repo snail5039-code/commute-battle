@@ -43,6 +43,16 @@ export type RouteGuideAiInput = Omit<RouteGuideInput, 'home_address' | 'work_add
 export type CharacterMessageInput = (
   | { mode: 'trigger'; trigger: PetTriggerKey; characterStage: string }
   | { mode: 'idle'; segment: TimeSegment; characterStage: string }
+  | { mode: 'coach'; characterStage: string; summary: {
+    todayCommuteDone: boolean;
+    todayReturnDone: boolean;
+    recentCommutes: number;
+    onTimeCount: number;
+    lateCount: number;
+    averageMinutes: number | null;
+    currentHour: number;
+    hints: string[];
+  } }
   | { mode: 'play' | 'poke'; characterStage: string }) & { variant?: number };
 
 export interface StatsCommentInput {

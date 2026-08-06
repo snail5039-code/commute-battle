@@ -1,7 +1,7 @@
 import type { PetTriggerKey } from './petTriggers';
 import { IDLE_CHAT_FALLBACK, pickPetLine, type TimeSegment } from './petMessages';
 import { getStatsFallbackComment, type MonthlyStats } from './stats';
-import type { RouteGuideResponse } from './types';
+import type { CommuteRecord, RouteGuideResponse } from './types';
 import type { AiRequest, AiResultMap, AssistantAnswer, AssistantInput, Enhancement, RouteComment, RouteCommentInput, RouteGuideInput } from './aiTypes';
 import { compactRouteSegments, redactAssistantInput, safeRouteGuideInput } from './aiPayload';
 
@@ -71,6 +71,29 @@ function characterRequest(input: Extract<AiRequest, { kind: 'character-message' 
 const messageVariant = () => Math.floor(Math.random() * 24);
 export function generatePetMessage(trigger: PetTriggerKey, characterStage: string) { return characterRequest({ mode: 'trigger', trigger, characterStage, variant: messageVariant() }, PET_FALLBACK[trigger]).enhancement; }
 export function generateIdleChat(segment: TimeSegment, characterStage: string) { return characterRequest({ mode: 'idle', segment, characterStage, variant: messageVariant() }, pickPetLine(IDLE_CHAT_FALLBACK[segment])).enhancement; }
+export function generateCoachMessage(records: CommuteRecord[], now: Date, characterStage: string, fallbackLines: string[]) {
+  const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const todayCommuteDone = records.some((record) => record.date === localDate && record.type === 'commute' && Boolean(record.end_time));
+  const todayReturnDone = records.some((record) => record.date === localDate && record.type === 'return' && Boolean(record.end_time));
+  const recentCommutes = records.filter((record) => record.type === 'commute' && record.end_time).slice(0, 10);
+  const durations = recentCommutes.map((record) => record.duration_minutes).filter((value): value is number => typeof value === 'number' && value > 0 && value < 1440);
+  const averageMinutes = durations.length ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length) : null;
+  return characterRequest({
+    mode: 'coach',
+    characterStage,
+    variant: messageVariant(),
+    summary: {
+      todayCommuteDone,
+      todayReturnDone,
+      recentCommutes: recentCommutes.length,
+      onTimeCount: recentCommutes.filter((record) => record.is_on_time).length,
+      lateCount: recentCommutes.filter((record) => !record.is_on_time).length,
+      averageMinutes,
+      currentHour: now.getHours(),
+      hints: fallbackLines.slice(0, 4),
+    },
+  }, pickPetLine(fallbackLines)).enhancement;
+}
 export function generatePlayMessage(characterStage: string) { return characterRequest({ mode: 'play', characterStage, variant: messageVariant() }, pickPetLine(['좋아, 같이 놀자!', '기분 좋아졌어! 한 번 더!', '잠깐 쉬면서 나랑 놀자.', '헤헤, 네가 놀아주니까 신난다!'])).enhancement; }
 export function generatePokeMessage(characterStage: string) { return characterRequest({ mode: 'poke', characterStage, variant: messageVariant() }, pickPetLine(['간지러워!', '왜 불렀어? 기록 확인해줄까?', '나 여기 있어!', '콕 찔렀지? 오늘도 같이 힘내자!', '응? 무슨 일이야?'])).enhancement; }
 

@@ -44,6 +44,29 @@ import type { CommuteRecord } from './types';
 
 const LAST_LINE_KEY = 'commute-battle:pet:last-line';
 
+export const PET_SMALL_TALK_LINES = [
+  '나 오늘도 출근 감시 중이야.',
+  '주머니에 넣고 다니면 안 돼?',
+  '늦으면 내가 먼저 삐질 거야.',
+  '오늘은 왠지 정시 느낌인데?',
+  '출근 버튼 누르는 손, 아주 소중해.',
+  '퇴근 버튼은 행복 버튼이야.',
+  '나도 커피 냄새 맡고 싶다.',
+  '길 막히면 내가 같이 화내줄게.',
+  '기록 쌓이는 거 보면 기분 좋아.',
+  '오늘도 무사 도착이 제일 중요해.',
+  '잠깐 스트레칭하고 가자.',
+  '나 심심해. 한 번 눌러줘.',
+  '퇴근 생각만 해도 꼬리가 흔들려.',
+  '출근길 BGM 골랐어?',
+  '오늘 신발 편한 거 신었지?',
+  '비 오면 우산 챙겨. 잔소리 맞아.',
+  '정시 도착하면 내가 박수 칠게.',
+  '기록 안 하면 내가 서운해.',
+  '오늘도 내가 옆에서 따라갈게.',
+  '집에 가는 길은 언제나 옳아.',
+];
+
 export function pickPetLine(lines: string[]) {
   if (lines.length === 0) return '오늘도 내가 옆에서 지켜볼게.';
   const previous = typeof window === 'undefined' ? '' : sessionStorage.getItem(LAST_LINE_KEY) || '';

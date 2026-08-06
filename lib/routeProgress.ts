@@ -45,7 +45,7 @@ export interface DetailedRouteProgress {
 }
 
 const EARTH_RADIUS_M = 6_371_000;
-export const MAX_GPS_ACCURACY_M = 100;
+export const MAX_GPS_ACCURACY_M = 2_000;
 export const MAX_GPS_AGE_MS = 15_000;
 export const ARRIVAL_RADIUS_M = 80;
 

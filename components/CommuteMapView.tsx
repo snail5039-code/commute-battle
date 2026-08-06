@@ -59,11 +59,6 @@ const LOCATION_RETRY_MS = 3_000;
 
 const BADGE_LABEL = { fastest: '빠른 경로', 'least-walking': '도보 적은 경로', 'fewest-transfers': '환승 적은 경로' } as const;
 
-function formatElapsed(start?: string) {
-  const seconds = Math.max(0, Math.floor((Date.now() - new Date(start ?? Date.now()).getTime()) / 1000));
-  return [Math.floor(seconds / 3600), Math.floor((seconds % 3600) / 60), seconds % 60].map((value) => String(value).padStart(2, '0')).join(':');
-}
-
 function formatMinutes(minutes: number) {
   if (minutes < 60) return `${Math.round(minutes)}분`;
   const hours = Math.floor(minutes / 60);
@@ -75,6 +70,12 @@ function formatDistance(metres: number) { return metres < 1000 ? `${Math.round(m
 function formatSteps(metres: number) { return `약 ${Math.max(0, Math.round(metres / 0.75)).toLocaleString('ko-KR')}보`; }
 function formatClock(date: Date) { return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }); }
 function coordinates(position: GeolocationPosition): LatLng { return { lat: position.coords.latitude, lng: position.coords.longitude }; }
+
+function arrivalEstimate(route: RouteResponse | null, departureAt: number) {
+  if (!route) return null;
+  const arrival = new Date(departureAt + route.summary.totalTime * 60_000);
+  return { clock: formatClock(arrival), duration: formatMinutes(route.summary.totalTime) };
+}
 
 function locationErrorMessage(error: GeolocationPositionError) {
   if (error.code === error.PERMISSION_DENIED) return '위치 권한이 거부되어 등록된 출발 주소를 사용합니다.';
@@ -281,8 +282,8 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
 
   const drawRoute = useCallback((data: RouteResponse, selectedMode: TravelMode) => {
     const map = mapRef.current;
-    const start = startRef.current;
-    const end = endRef.current;
+    const start = startRef.current ?? data.polyline[0] ?? data.segments[0]?.points[0];
+    const end = endRef.current ?? data.polyline.at(-1) ?? data.segments.at(-1)?.points.at(-1);
     if (!map || !start || !end) return;
     clearRoute();
     const bounds = new window.kakao.maps.LatLngBounds();
@@ -329,7 +330,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
       line.setMap(map);
       routeOverlaysRef.current.push(line);
     });
-    if (!userCenteredRef.current) map.setBounds(bounds);
+    map.setBounds(bounds);
   }, [clearRoute]);
 
   useEffect(() => {
@@ -657,13 +658,14 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   const hasUnavailableWalkingGeometry = mode === 'transit' && Boolean(route?.segments.some(isUnavailableWalkingGeometry));
   const hasRoadReference = mode === 'transit' && Boolean(route?.segments.some(isRoadReference));
   const displayedWarnings = route?.intelligence?.warnings.filter((warning) => warning.kind !== 'geometry-unavailable') ?? [];
+  const arrival = arrivalEstimate(route, routeDepartureAt);
 
   const panel = (
     <aside className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(15,23,42,0.12)] md:h-full md:w-[360px] md:flex-none md:border-l md:border-neutral-200 md:pb-4 md:shadow-none">
       <div className="mb-3 flex w-fit rounded-full bg-neutral-100 p-1">
         {(['walk', 'transit'] as const).map((value) => <button key={value} onClick={() => changeMode(value)} aria-pressed={mode === value} className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold ${mode === value ? 'bg-neutral-900 text-white shadow-sm' : 'text-neutral-500'}`}>{value === 'walk' ? <Footprints size={13} /> : <Bus size={13} />}{value === 'walk' ? '도보' : '대중교통'}</button>)}
       </div>
-      {mode === 'transit' && <div className="mb-3"><p className="mb-1 text-[10px] font-bold text-neutral-500">기본 경로 선호 · 이 기기에 저장</p><div className="grid grid-cols-3 gap-1 rounded-xl bg-neutral-100 p-1" aria-label="기본 경로 선호">{(['fastest', 'least-walking', 'fewest-transfers'] as const).map((preference) => <button key={preference} type="button" onClick={() => changeRoutePreference(preference)} aria-pressed={routePreference === preference} className={`whitespace-nowrap rounded-lg px-1 py-2 text-[10px] font-semibold ${routePreference === preference ? 'bg-white text-blue-700 shadow-sm' : 'text-neutral-500'}`}>{BADGE_LABEL[preference]}</button>)}</div></div>}
+      {mode === 'transit' && <div className="mb-3"><p className="mb-1 text-[10px] font-bold text-neutral-500">기본 경로 선호 · 이 기기에 저장</p><div className="grid grid-cols-3 gap-1 rounded-xl bg-neutral-100 p-1" aria-label="기본 경로 선호">{(['fastest', 'least-walking', 'fewest-transfers'] as const).map((preference) => <button key={preference} type="button" onClick={() => changeRoutePreference(preference)} aria-pressed={routePreference === preference} className={`min-h-10 min-w-0 rounded-lg px-1.5 py-2 text-center text-[10px] font-semibold leading-tight ${routePreference === preference ? 'bg-white text-blue-700 shadow-sm' : 'text-neutral-500'}`}><span className="block break-keep">{BADGE_LABEL[preference]}</span></button>)}</div></div>}
       {mode === 'transit' && <RouteFavoritesPanel direction={direction} favorites={favorites} learningEnabled={learningEnabled} onToggleLearning={toggleLearning} onResetLearning={resetLearning} />}
       <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-neutral-100 p-1" aria-label="출발 기준">
         {(['current', 'saved'] as const).map((value) => <button key={value} type="button" onClick={() => changeStartBasis(value)} disabled={value === 'current' ? !hasCurrentLocation : !hasSavedStart} aria-pressed={startBasis === value} className={`rounded-lg px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${startBasis === value ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}>{value === 'current' ? '현재 위치에서' : '저장한 주소에서'}</button>)}
@@ -714,7 +716,11 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
         {panel}
       </div>
       <footer className="relative z-20 flex shrink-0 items-center gap-4 border-t border-neutral-100 bg-white px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4">
-        <p className="flex-1 text-center font-mono text-[20px] font-semibold tabular-nums">{formatElapsed(activeRecord.start_time)}</p>
+        <p className="flex-1 text-center">
+          <span className="block text-[10px] font-bold text-neutral-400">{arrival ? '도착 예상' : loading ? '경로 계산 중' : '도착 예상'}</span>
+          <span className="font-mono text-[20px] font-semibold tabular-nums text-neutral-900">{arrival ? arrival.clock : '--:--'}</span>
+          {arrival && <span className="ml-2 align-baseline text-xs font-semibold text-neutral-400">{arrival.duration}</span>}
+        </p>
         <button onClick={arrive} disabled={arriving} className="w-1/2 rounded-[14px] bg-emerald-500 py-3 text-[14px] font-semibold text-white hover:bg-emerald-600 disabled:opacity-50">{arriving ? '기록 중…' : '도착'}</button>
       </footer>
     </div>

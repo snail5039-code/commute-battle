@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { Bell, Bot, BriefcaseBusiness, Cat, MapPinned, ShieldCheck, Trash2 } from 'lucide-react';
+import { Bell, Bot, BriefcaseBusiness, Cat, MapPinned, Search, ShieldCheck, Trash2 } from 'lucide-react';
 import { clearRouteLearning, isRouteLearningEnabled, setRouteLearningEnabled } from '@/lib/routeLearning';
 import { getRoutePreference, saveRoutePreference, type RoutePreference } from '@/lib/routePreferences';
 import { DEFAULT_PET_ID, PET_CATALOG, PET_IDS, readStoredPetId, storePetId, type PetId } from '@/lib/petCatalog';
@@ -47,6 +47,42 @@ export function NotificationSettingsSlot({ children }: { children?: ReactNode })
   </div>;
 }
 
+interface DaumPostcodeData {
+  roadAddress: string;
+  jibunAddress: string;
+  zonecode: string;
+  buildingName?: string;
+  apartment?: 'Y' | 'N';
+}
+
+declare global {
+  interface Window {
+    daum?: {
+      Postcode: new (options: { oncomplete: (data: DaumPostcodeData) => void }) => { open: () => void };
+    };
+  }
+}
+
+let postcodeScriptPromise: Promise<void> | null = null;
+
+function loadDaumPostcode() {
+  if (typeof window === 'undefined') {
+    return Promise.reject(new Error('브라우저에서만 주소 검색을 사용할 수 있습니다.'));
+  }
+  if (window.daum?.Postcode) return Promise.resolve();
+  if (!postcodeScriptPromise) {
+    postcodeScriptPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('주소 검색 서비스를 불러오지 못했습니다.'));
+      document.head.appendChild(script);
+    });
+  }
+  return postcodeScriptPromise;
+}
+
 interface SettingsSectionsProps {
   userId: string;
   homeAddress: string;
@@ -68,6 +104,7 @@ export default function SettingsSections(props: SettingsSectionsProps) {
   const [petId, setPetId] = useState<PetId>(DEFAULT_PET_ID);
   const [localSettings, setLocalSettings] = useState<LocalSettings>(DEFAULT_LOCAL_SETTINGS);
   const [localStatus, setLocalStatus] = useState('');
+  const [addressSearchLoading, setAddressSearchLoading] = useState<'home' | 'work' | null>(null);
 
   useEffect(() => {
     const load = () => {
@@ -102,13 +139,52 @@ export default function SettingsSections(props: SettingsSectionsProps) {
     setLocalStatus('이 기기의 앱 설정을 모두 초기화했습니다. 주소와 계정 데이터는 삭제하지 않았습니다.');
   };
 
+  const openAddressSearch = async (target: 'home' | 'work') => {
+    setAddressSearchLoading(target);
+    try {
+      await loadDaumPostcode();
+      if (!window.daum?.Postcode) throw new Error('주소 검색 서비스를 사용할 수 없습니다.');
+      new window.daum.Postcode({
+        oncomplete: (data) => {
+          const address = data.roadAddress || data.jibunAddress;
+          const building = data.buildingName && data.apartment === 'Y' ? ` (${data.buildingName})` : '';
+          const nextAddress = `${address}${building}`.trim();
+          if (target === 'home') props.onHomeAddressChange(nextAddress);
+          else props.onWorkAddressChange(nextAddress);
+          setLocalStatus('주소를 선택했습니다. 저장 버튼을 눌러 반영해 주세요.');
+        },
+      }).open();
+    } catch (error) {
+      setLocalStatus(error instanceof Error ? error.message : '주소 검색을 열지 못했습니다.');
+    } finally {
+      setAddressSearchLoading(null);
+    }
+  };
+
   return <div className="grid gap-5 lg:grid-cols-[14rem_minmax(0,1fr)]">
     <nav aria-label="설정 항목" className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
       {sections.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => selectSection(id)} aria-current={active === id ? 'page' : undefined} className={`flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-left text-sm font-bold ${active === id ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><Icon size={17}/>{label}</button>)}
     </nav>
     <div className="min-w-0">
       {active === 'work' && <section id="work" aria-labelledby="work-title" className="card p-5 md:p-7"><h2 id="work-title" className="text-lg font-bold">근무 설정</h2><p className="mt-1 text-sm text-slate-500">기본 주소, 근무 시간과 요일별 근무 형태를 관리합니다.</p>
-        <div className="mt-6 grid gap-4 sm:grid-cols-2"><label className="text-xs font-bold">집 주소<input value={props.homeAddress} onChange={(event) => props.onHomeAddressChange(event.target.value)} className="settings-control mt-2 w-full rounded-xl border border-slate-200 px-3.5 text-sm" autoComplete="street-address"/></label><label className="text-xs font-bold">회사 주소<input value={props.workAddress} onChange={(event) => props.onWorkAddressChange(event.target.value)} className="settings-control mt-2 w-full rounded-xl border border-slate-200 px-3.5 text-sm" autoComplete="street-address"/></label><label className="text-xs font-bold">출근 시각<input type="time" value={props.schedule.startTime} onChange={(event) => props.onScheduleChange({ ...props.schedule, startTime: event.target.value })} className="settings-control mt-2 w-full rounded-xl border border-slate-200 px-3"/></label><label className="text-xs font-bold">퇴근 시각<input type="time" value={props.schedule.endTime} onChange={(event) => props.onScheduleChange({ ...props.schedule, endTime: event.target.value })} className="settings-control mt-2 w-full rounded-xl border border-slate-200 px-3"/></label></div>
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <label className="text-xs font-bold">
+            집 주소
+            <span className="mt-2 flex gap-2">
+              <input value={props.homeAddress} onChange={(event) => props.onHomeAddressChange(event.target.value)} className="settings-control w-full rounded-xl border border-slate-200 px-3.5 text-sm" autoComplete="street-address" placeholder="주소 검색으로 선택해 주세요"/>
+              <button type="button" onClick={() => void openAddressSearch('home')} disabled={addressSearchLoading !== null} className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-bold text-blue-700 shadow-sm hover:bg-blue-100 disabled:opacity-50"><Search size={14}/>{addressSearchLoading === 'home' ? '검색 중' : '검색'}</button>
+            </span>
+          </label>
+          <label className="text-xs font-bold">
+            회사 주소
+            <span className="mt-2 flex gap-2">
+              <input value={props.workAddress} onChange={(event) => props.onWorkAddressChange(event.target.value)} className="settings-control w-full rounded-xl border border-slate-200 px-3.5 text-sm" autoComplete="street-address" placeholder="주소 검색으로 선택해 주세요"/>
+              <button type="button" onClick={() => void openAddressSearch('work')} disabled={addressSearchLoading !== null} className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-bold text-blue-700 shadow-sm hover:bg-blue-100 disabled:opacity-50"><Search size={14}/>{addressSearchLoading === 'work' ? '검색 중' : '검색'}</button>
+            </span>
+          </label>
+          <label className="text-xs font-bold">출근 시각<input type="time" value={props.schedule.startTime} onChange={(event) => props.onScheduleChange({ ...props.schedule, startTime: event.target.value })} className="settings-control mt-2 w-full rounded-xl border border-slate-200 px-3"/></label>
+          <label className="text-xs font-bold">퇴근 시각<input type="time" value={props.schedule.endTime} onChange={(event) => props.onScheduleChange({ ...props.schedule, endTime: event.target.value })} className="settings-control mt-2 w-full rounded-xl border border-slate-200 px-3"/></label>
+        </div>
         <div className="mt-5 space-y-2">{weekdays.map(({ day, label }) => { const mode = getWorkdaySchedule(props.schedule, new Date(2024, 0, day)).mode; return <div key={day} className="flex flex-col gap-2 rounded-xl bg-slate-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"><span className="text-sm font-bold">{label}요일</span><div className="grid grid-cols-3 gap-1" role="group" aria-label={`${label}요일 근무 형태`}>{(['office', 'remote', 'off'] as WorkdayMode[]).map((item) => <button key={item} type="button" aria-pressed={mode === item} onClick={() => setMode(day, item)} className={`min-h-10 rounded-lg px-3 text-xs font-bold ${mode === item ? 'bg-blue-600 text-white' : 'bg-white text-slate-600'}`}>{modeLabel[item]}</button>)}</div></div>; })}</div>
         <div className="mt-6 flex flex-wrap items-center gap-3"><button type="button" onClick={props.onSave} disabled={props.saving} className="min-h-11 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white disabled:opacity-60">{props.saving ? '저장 중…' : '근무 설정 저장'}</button><p role="status" aria-live="polite" className="text-xs text-slate-600">{props.status}</p></div>
       </section>}
@@ -119,7 +195,7 @@ export default function SettingsSections(props: SettingsSectionsProps) {
 
       {active === 'notifications' && <section id="notifications" aria-labelledby="notifications-title" className="card p-5 md:p-7"><h2 id="notifications-title" className="text-lg font-bold">알림 설정</h2><p className="mb-6 mt-1 text-sm text-slate-500">출발 알림과 브라우저 권한을 관리합니다.</p><NotificationSettingsSlot>{props.notificationPanel}</NotificationSettingsSlot><div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 p-4"><p className="text-sm font-bold text-blue-950">홈 화면에 설치</p><p className="mt-1 text-xs leading-5 text-blue-800">기기별 설치 방법과 현재 설치 가능 상태를 별도 페이지에서 확인할 수 있습니다.</p><Link href="/install" className="mt-3 inline-flex min-h-10 items-center rounded-lg bg-white px-3 text-xs font-bold text-blue-700 shadow-sm">설치 방법 보기</Link></div></section>}
 
-      {active === 'pet' && <section id="pet" aria-labelledby="pet-title" className="card p-5 md:p-7"><h2 id="pet-title" className="text-lg font-bold">펫 설정</h2><p className="mt-1 text-sm text-slate-500">함께할 펫과 대사 빈도를 선택합니다.</p><fieldset className="mt-6"><legend className="text-sm font-bold">펫 선택</legend><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">{PET_IDS.map((id) => <button key={id} type="button" aria-pressed={petId === id} onClick={() => { setPetId(id); storePetId(id); }} className={`min-h-12 rounded-xl border px-3 text-sm font-bold ${petId === id ? 'border-blue-500 bg-blue-50 text-blue-800' : 'border-slate-200'}`} style={petId === id ? { borderColor: PET_CATALOG[id].color } : undefined}>{petLabel[id]}</button>)}</div></fieldset><label className="mt-6 block text-sm font-bold" htmlFor="pet-frequency">대사 빈도</label><select id="pet-frequency" value={localSettings.petMessageFrequency} onChange={(event) => updateLocalSettings({ ...localSettings, petMessageFrequency: event.target.value as LocalSettings['petMessageFrequency'] })} className="settings-control mt-2 w-full rounded-xl border border-slate-200 px-3 text-sm sm:max-w-xs"><option value="frequent">자주 · 기록 코칭 강화</option><option value="normal">보통</option><option value="quiet">조용히</option></select><p className="mt-2 text-xs text-slate-500">‘자주’는 약 1분 간격으로 기록 기반 칭찬과 잔소리를 들려줍니다.</p></section>}
+      {active === 'pet' && <section id="pet" aria-labelledby="pet-title" className="card p-5 md:p-7"><h2 id="pet-title" className="text-lg font-bold">펫 설정</h2><p className="mt-1 text-sm text-slate-500">함께할 펫과 대사 빈도를 선택합니다.</p><fieldset className="mt-6"><legend className="text-sm font-bold">펫 선택</legend><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">{PET_IDS.map((id) => <button key={id} type="button" aria-pressed={petId === id} onClick={() => { setPetId(id); storePetId(id); }} className={`min-h-12 rounded-xl border px-3 text-sm font-bold ${petId === id ? 'border-blue-500 bg-blue-50 text-blue-800' : 'border-slate-200'}`} style={petId === id ? { borderColor: PET_CATALOG[id].color } : undefined}>{petLabel[id]}</button>)}</div></fieldset><label className="mt-6 block text-sm font-bold" htmlFor="pet-frequency">대사 빈도</label><select id="pet-frequency" value={localSettings.petMessageFrequency} onChange={(event) => updateLocalSettings({ ...localSettings, petMessageFrequency: event.target.value as LocalSettings['petMessageFrequency'] })} className="settings-control mt-2 w-full rounded-xl border border-slate-200 px-3 text-sm sm:max-w-xs"><option value="frequent">자주 · 기록 코칭 강화</option><option value="normal">보통</option><option value="quiet">조용히</option></select><p className="mt-2 text-xs text-slate-500">‘자주’는 약 30초 간격으로 AI가 출퇴근 기록을 보고 칭찬과 잔소리를 더 자주 들려줍니다.</p></section>}
 
       {active === 'ai-privacy' && <section id="ai-privacy" aria-labelledby="ai-title" className="card p-5 md:p-7"><h2 id="ai-title" className="text-lg font-bold">AI·개인정보</h2><div className="mt-4 rounded-xl bg-blue-50 p-4 text-sm leading-6 text-blue-950"><p className="font-bold">AI 답변의 근거</p><p>답변에는 사용한 통근 기록, 실시간 정보 여부, 추정값과 주의사항을 구분해 표시합니다. 피드백 집계는 이 브라우저에만 저장됩니다.</p></div><div className="mt-5"><ConfirmAction label="AI 근거·피드백 로컬 데이터 초기화" confirmLabel="AI 데이터 초기화" onConfirm={() => { clearAiLocalData(); setLocalStatus('이 기기의 AI 피드백 데이터를 초기화했습니다.'); }}/></div><div className="mt-8 border-t border-slate-200 pt-6"><h3 className="font-bold text-red-700">모든 로컬 설정 초기화</h3><p className="mt-1 text-xs leading-5 text-slate-500">근무 일정, 경로 선호·학습, 펫, AI 피드백과 화면 설정을 이 기기에서 지웁니다. 서버의 주소·통근 기록·계정은 유지됩니다.</p><div className="mt-4"><ConfirmAction tone="danger" label="모든 로컬 설정 초기화" confirmLabel="모두 초기화" onConfirm={resetAll}/></div></div></section>}
 
