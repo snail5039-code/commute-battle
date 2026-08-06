@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, RotateCcw, Trash2 } from 'lucide-react';
 import { CommuteRecord } from '@/lib/types';
 import { loadExcludedRecordIds, setRecordExcluded } from '@/lib/recordOverrides';
@@ -23,16 +23,15 @@ export default function CalendarView({ records }: { records: CommuteRecord[] }) 
   const calendarRef = useRef<HTMLDivElement>(null);
   const [calendarHeight, setCalendarHeight] = useState<number | null>(null);
 
-  useEffect(() => {
-    const el = calendarRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) setCalendarHeight(entry.contentRect.height);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = calendarRef.current;
+      if (el) setCalendarHeight(el.getBoundingClientRect().height);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  });
 
   const days = useMemo(() => {
     const first = new Date(year, month, 1), start = new Date(first);
