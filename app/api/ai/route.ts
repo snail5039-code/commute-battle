@@ -106,7 +106,7 @@ function promptFor(request: AiRequest) {
   if (request.kind === 'route-guide') return `${guard}\n이동 안내를 짧게 작성하라. 형식: {"route":"","recommended_departure":"","difficulty":"peaceful|caution|alert|danger","message":""}\nDATA=${JSON.stringify(request.input)}`;
   if (request.kind === 'character-message') return `${guard}\n친근한 성장형 캐릭터 말투로 한국어 한 문장, 45자 이내로 작성하라. mode가 coach이면 DATA.summary의 출퇴근 기록 요약을 보고 구체적으로 칭찬하거나 가볍게 잔소리하라. 같은 표현 반복을 피하고 주소·계정·개인정보는 묻거나 추측하지 마라. 형식: {"message":""}\nDATA=${JSON.stringify(request.input)}`;
   if (request.kind === 'stats-comment') return `${guard}\n출퇴근 기록 코치로서 과장하지 말고 관찰 하나와 다음 행동 하나를 한국어 두 문장, 180자 이내로 작성하라. 형식: {"comment":""}\nDATA=${JSON.stringify(request.input)}`;
-  return `${guard}\n출퇴근 질문에 제공된 context만 사용해 답하라. 개인정보나 기록 변경을 요구하지 말고 확인되지 않은 실시간 정보는 추측하지 마라. 결론/핵심 근거/출처/주의사항을 구분하라. evidence.kind는 realtime|record|estimate 중 하나다. 형식: {"text":"","details":[""],"conclusion":"","evidence":[{"label":"","kind":"estimate","checkedAt":"","values":[""],"fallback":false,"source":""}],"sources":[""],"cautions":[""]}\nDATA=${JSON.stringify(request.input)}`;
+  return `${guard}\n출퇴근 질문에 제공된 context만 사용해 답하라. 개인정보나 기록 변경을 요구하지 말고 확인되지 않은 실시간 정보는 추측하지 마라. 결론/핵심 근거/출처/주의사항을 구분하라. evidence.kind는 realtime|record|estimate 중 하나다. 길이 제한을 반드시 지켜라: text는 300자 이내, details는 최대 4개이고 각 항목 180자 이내, sources는 최대 4개이고 각 항목 120자 이내, cautions는 최대 4개이고 각 항목 180자 이내, evidence는 최대 6개이고 각 label은 180자 이내다. 형식: {"text":"","details":[""],"conclusion":"","evidence":[{"label":"","kind":"estimate","checkedAt":"","values":[""],"fallback":false,"source":""}],"sources":[""],"cautions":[""]}\nDATA=${JSON.stringify(request.input)}`;
 }
 
 function extractJson(raw: string): unknown {
