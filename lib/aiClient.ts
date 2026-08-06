@@ -83,7 +83,7 @@ export function requestStatsComment(stats: MonthlyStats, monthLabel: string): En
 export function generateStatsComment(stats: MonthlyStats, monthLabel: string) { return requestStatsComment(stats, monthLabel).enhancement; }
 
 export function requestAssistant(input: AssistantInput): Enhancement<AssistantAnswer> {
-  const fallback: AssistantAnswer = { text: '현재 기록을 바탕으로 출발 시각, 이동 시간, 지각률 질문을 도와드릴 수 있어요.', details: ['AI 응답을 사용할 수 없어 규칙 기반 답변을 유지합니다.'], conclusion: '규칙 기반 답변을 확인해 주세요.', cautions: ['실제 교통·날씨 상황과 차이가 있을 수 있습니다.'], fallback: true };
+  const fallback: AssistantAnswer = { text: '답변 서비스가 잠시 원활하지 않아요.', details: ['저장된 기록을 바탕으로 한 기본 안내를 확인해 주세요.'], conclusion: '잠시 후 다시 시도해 주세요.', cautions: ['실제 교통과 날씨에 따라 결과가 달라질 수 있어요.'], fallback: true };
   return withFallback(fallback, requestAi({ kind: 'assistant', input: redactAssistantInput(input) }));
 }
 

@@ -7,10 +7,6 @@ import { NAV_ITEMS } from '@/lib/nav';
 import StatusIcon from './StatusIcon';
 import LogoutButton from './LogoutButton';
 
-const LABELS: Record<string, string> = {
-  '/': '홈', '/map': '이동', '/badges': '배지', '/stats': '통계', '/settings': '설정',
-};
-
 export default function Sidebar() {
   const pathname = usePathname();
 
@@ -23,9 +19,9 @@ export default function Sidebar() {
 
       <nav aria-label="주요 메뉴" className="mt-7 flex flex-1 flex-col items-center gap-2">
         {NAV_ITEMS.map((item) => {
-          const isActive = pathname === item.href;
+          const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(`${item.href}/`));
           const Icon = item.icon;
-          const label = LABELS[item.href] ?? item.label;
+          const label = item.label;
           return (
             <Link key={item.href} href={item.href} aria-current={isActive ? 'page' : undefined} aria-label={label}
               className={`group relative flex size-11 items-center justify-center rounded-[14px] transition-all ${isActive ? 'bg-blue-600 text-white shadow-md shadow-blue-200' : 'bg-slate-50 text-slate-500 ring-1 ring-slate-100 hover:bg-slate-100 hover:text-slate-900'}`}>
