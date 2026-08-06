@@ -41,7 +41,7 @@ export default function DashBoard() {
       <div className="grid min-w-0 gap-4 lg:grid-cols-[1fr_2fr] lg:items-start lg:gap-5">
         <CommuteButton user={user} records={records} onChange={refetch} />
         <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:gap-5">
-          <CharacterCard user={user} />
+          <CharacterCard user={user} records={records} />
           <StatsSummaryWidget records={records} />
           <DashboardSettingsShortcuts />
           <DashboardCommunityPreview />

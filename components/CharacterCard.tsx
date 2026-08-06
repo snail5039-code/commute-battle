@@ -1,22 +1,25 @@
 'use client';
 
-import { User } from '@/lib/types';
+import { CommuteRecord, User } from '@/lib/types';
+import { getBadgeSummary } from '@/lib/badges';
 import { getExpNeeded, NEXT_EVOLUTION } from '@/lib/characterStages';
 import { PET_CATALOG, PET_IDS, storePetId, useSelectedPetId, type PetId } from '@/lib/petCatalog';
 import CharacterIcon from './CharacterIcon';
 
 interface CharacterCardProps {
   user: User;
+  records: CommuteRecord[];
   selectedPetId?: PetId;
   onPetChange?: (petId: PetId) => void;
 }
 
-export default function CharacterCard({ user, selectedPetId, onPetChange }: CharacterCardProps) {
+export default function CharacterCard({ user, records, selectedPetId, onPetChange }: CharacterCardProps) {
   const fallbackPetId = useSelectedPetId();
   const petId = selectedPetId ?? fallbackPetId;
   const pet = PET_CATALOG[petId];
   const expNeeded = getExpNeeded(user.character_level);
   const expPercent = Math.min((user.character_exp / expNeeded) * 100, 100);
+  const { completed: badgeCount } = getBadgeSummary(records);
 
   const selectPet = (nextPetId: PetId) => {
     storePetId(nextPetId);
@@ -32,7 +35,7 @@ export default function CharacterCard({ user, selectedPetId, onPetChange }: Char
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-2">
             <div className="min-w-0"><h2 className="text-[15px] font-semibold text-neutral-900 truncate">{pet.name} · {pet.stageNames[user.character_stage]}</h2><p className="text-[11px] text-neutral-400 truncate">{pet.personality}</p></div>
-            <span className="text-[13px] font-medium text-neutral-400 shrink-0">Lv.{user.character_level}</span>
+            <span className="flex items-center gap-2 shrink-0"><span className="text-[11px] font-semibold text-blue-700">배지 {badgeCount}개</span><span className="text-[13px] font-medium text-neutral-400">Lv.{user.character_level}</span></span>
           </div>
           <div className="mt-2.5 w-full bg-neutral-100 rounded-full h-1.5" role="progressbar" aria-label={`${pet.name} 경험치`} aria-valuemin={0} aria-valuemax={expNeeded} aria-valuenow={Math.min(user.character_exp, expNeeded)}>
             <div className="h-1.5 rounded-full transition-all duration-500" style={{ width: `${expPercent}%`, backgroundColor: pet.color }} />
