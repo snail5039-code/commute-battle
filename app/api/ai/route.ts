@@ -5,9 +5,10 @@ import type { AiRequest, RouteComment } from '@/lib/aiTypes';
 import { AI_BODY_LIMIT_BYTES, AI_ROUTE_SEGMENT_LIMIT, compactRouteSegments, redactAssistantInput } from '@/lib/aiPayload';
 
 export const runtime = 'nodejs';
+export const maxDuration = 10;
 
 const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-const TIMEOUT_MS = 4_000;
+const TIMEOUT_MS = 8_000;
 const CACHE_TTL_MS = 5 * 60_000;
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = 20;
