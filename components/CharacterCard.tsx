@@ -24,7 +24,7 @@ export default function CharacterCard({ user, selectedPetId, onPetChange }: Char
   };
 
   return (
-    <div className="card p-5 h-full flex flex-col justify-center">
+    <div className="card self-start p-5">
       <div className="flex items-center gap-4">
         <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 ring-1 ring-black/[0.04]" style={{ backgroundColor: pet.softColor }}>
           <CharacterIcon stage={user.character_stage} petId={petId} size={28} strokeWidth={1.75} />
