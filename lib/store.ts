@@ -10,7 +10,7 @@ export const DEFAULT_WORK_SCHEDULE: WorkSchedule = {
 const WORK_SCHEDULE_KEY = 'commuteBattle.workSchedule';
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
-export type PetMessageFrequency = 'normal' | 'quiet';
+export type PetMessageFrequency = 'frequent' | 'normal' | 'quiet';
 
 export interface LocalSettings {
   petMessageFrequency: PetMessageFrequency;
@@ -32,7 +32,7 @@ export function loadLocalSettings(userId?: string): LocalSettings {
   try {
     const value = JSON.parse(localStorage.getItem(localSettingsStorageKey(userId)) || 'null') as Partial<LocalSettings> | null;
     return {
-      petMessageFrequency: value?.petMessageFrequency === 'quiet' ? 'quiet' : 'normal',
+      petMessageFrequency: value?.petMessageFrequency === 'quiet' || value?.petMessageFrequency === 'frequent' ? value.petMessageFrequency : 'normal',
     };
   } catch {
     return DEFAULT_LOCAL_SETTINGS;

@@ -1,27 +1,30 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { supabase } from '@/lib/supabase';
 import { User } from '@/lib/types';
-import InitModal from '@/components/InitModal';
 import DashBoard from '@/components/DashBoard';
 import LandingPage from '@/components/LandingPage';
 import { Activity } from 'lucide-react';
 
 export default function Home() {
   const { user, setUser } = useStore();
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [showInit, setShowInit] = useState(false);
 
   useEffect(() => {
     const initUser = async () => {
-      const userId = localStorage.getItem('userId');
-
+      const { data: authData } = await supabase.auth.getSession();
+      const userId = authData.session?.user.id;
       if (!userId) {
+        localStorage.removeItem('userId');
+        setUser(null);
         setLoading(false);
         return;
       }
+      localStorage.setItem('userId', userId);
 
       try {
         const { data, error } = await supabase
@@ -53,13 +56,7 @@ export default function Home() {
     );
   }
 
-  if (showInit || !user) {
-    if (showInit) {
-      return <InitModal onComplete={() => setShowInit(false)} />;
-    }
-
-    return <LandingPage onStart={() => setShowInit(true)} />;
-  }
+  if (!user) return <LandingPage onStart={() => router.push('/login')} />;
 
   return <DashBoard />;
 }

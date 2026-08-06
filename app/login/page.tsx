@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Siren } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -12,11 +12,17 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [status, setStatus] = useState('');
+
+  useEffect(() => {
+    void supabase.auth.getSession().then(({ data }) => { if (data.session) router.replace('/'); });
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setStatus('');
 
     try {
       if (mode === 'signup') {
@@ -26,16 +32,21 @@ export default function LoginPage() {
         });
         if (signUpError) throw signUpError;
 
-        if (data.user) {
-          await supabase.from('users').insert({
+        if (data.user && data.session) {
+          const { error: profileError } = await supabase.from('users').upsert({
             id: data.user.id,
             character_level: 1,
             character_exp: 0,
             character_stage: 'alg',
             total_commute_starts: 0,
             total_commute_arrivals: 0,
-          });
+          }, { onConflict: 'id' });
+          if (profileError) throw profileError;
           localStorage.setItem('userId', data.user.id);
+        } else {
+          setStatus('가입 확인 메일을 보냈습니다. 이메일 인증 후 로그인해 주세요.');
+          setMode('signin');
+          return;
         }
       } else {
         const { data, error: signInError } = await supabase.auth.signInWithPassword({
@@ -46,13 +57,20 @@ export default function LoginPage() {
 
         if (data.user) {
           localStorage.setItem('userId', data.user.id);
+          const { data: profile } = await supabase.from('users').select('id').eq('id', data.user.id).maybeSingle();
+          if (!profile) {
+            const { error: profileError } = await supabase.from('users').insert({ id: data.user.id, character_level: 1, character_exp: 0, character_stage: 'alg', total_commute_starts: 0, total_commute_arrivals: 0 });
+            if (profileError) throw profileError;
+          }
         }
       }
 
-      router.push('/');
+      const next = new URLSearchParams(window.location.search).get('next');
+      router.replace(next?.startsWith('/') && !next.startsWith('//') ? next : '/');
+      router.refresh();
     } catch (err) {
       const message = err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다';
-      setError(message);
+      setError(message.includes('Invalid login credentials') ? '이메일 또는 비밀번호를 확인해 주세요.' : message.includes('already registered') ? '이미 가입된 이메일입니다.' : '로그인 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
       setLoading(false);
     }
@@ -86,11 +104,13 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="비밀번호"
             required
-            minLength={6}
+            minLength={8}
+            autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
             className="w-full px-3 py-2 border border-neutral-200 rounded-[10px] text-sm focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400 focus:outline-none"
           />
 
           {error && <p className="text-xs text-red-600">{error}</p>}
+          {status && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-xs text-emerald-700">{status}</p>}
 
           <button
             type="submit"
@@ -110,16 +130,7 @@ export default function LoginPage() {
             : '이미 계정이 있으신가요? 로그인'}
         </button>
 
-        <p className="text-xs text-neutral-400 text-center mt-6">
-          로그인 없이도{' '}
-          <button
-            onClick={() => router.push('/')}
-            className="underline hover:text-neutral-600"
-          >
-            바로 시작
-          </button>
-          할 수 있습니다.
-        </p>
+        <button type="button" onClick={() => router.push('/')} className="mt-6 w-full text-center text-xs text-neutral-400 underline hover:text-neutral-600">서비스 소개로 돌아가기</button>
       </div>
     </div>
   );

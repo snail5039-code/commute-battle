@@ -2,6 +2,7 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { AiRequest, RouteComment } from '@/lib/aiTypes';
+import { AI_BODY_LIMIT_BYTES, AI_ROUTE_SEGMENT_LIMIT, compactRouteSegments, redactAssistantInput } from '@/lib/aiPayload';
 
 export const runtime = 'nodejs';
 
@@ -10,13 +11,12 @@ const TIMEOUT_MS = 4_000;
 const CACHE_TTL_MS = 5 * 60_000;
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = 20;
-const MAX_BODY_BYTES = 24_000;
+const MAX_BODY_BYTES = AI_BODY_LIMIT_BYTES;
 const cache = new Map<string, { expires: number; data: unknown }>();
 const rateLimits = new Map<string, { reset: number; count: number }>();
 
 function apiKey() {
-  // Temporary server-side compatibility only. NEXT_PUBLIC_* must be removed from deployment settings.
-  return process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
+  return process.env.GEMINI_API_KEY || '';
 }
 
 function finite(value: unknown, min: number, max: number): value is number {
@@ -42,14 +42,14 @@ function validRequest(value: unknown): value is AiRequest {
   if (!plainObject(value) || !text(value.kind, 32) || !plainObject(value.input) || !rejectInjection(value.input)) return false;
   const input = value.input;
   if (value.kind === 'route-comment') {
-    return Array.isArray(input.segments) && input.segments.length <= 30 && input.segments.every((segment) => plainObject(segment) && finite(segment.trafficType, 0, 10) && text(segment.label, 80) && finite(segment.distance, 0, 200_000) && finite(segment.sectionTime, 0, 1_440)) && finite(input.totalTime, 0, 1_440) && finite(input.totalDistance, 0, 500_000) && finite(input.totalWalk, 0, 100_000) && text(input.departureTime, 40) && !Number.isNaN(Date.parse(input.departureTime));
+    return Array.isArray(input.segments) && input.segments.length <= AI_ROUTE_SEGMENT_LIMIT && input.segments.every((segment) => plainObject(segment) && finite(segment.trafficType, 0, 10) && text(segment.label, 60) && finite(segment.distance, 0, 200_000) && finite(segment.sectionTime, 0, 1_440)) && finite(input.totalTime, 0, 1_440) && finite(input.totalDistance, 0, 500_000) && finite(input.totalWalk, 0, 100_000) && text(input.departureTime, 40) && !Number.isNaN(Date.parse(input.departureTime));
   }
   if (value.kind === 'route-guide') {
     const weather = input.weather;
-    return text(input.home_address, 160) && text(input.work_address, 160) && (input.commute_type === 'commute' || input.commute_type === 'return') && plainObject(weather) && finite(weather.precipitation_mm_h, 0, 500) && finite(weather.probability, 0, 100) && text(weather.condition, 40);
+    return (input.commute_type === 'commute' || input.commute_type === 'return') && plainObject(weather) && finite(weather.precipitation_mm_h, 0, 500) && finite(weather.probability, 0, 100) && text(weather.condition, 40) && (input.recent_avg_departure_time === undefined || text(input.recent_avg_departure_time, 16)) && (input.recent_avg_arrival_time === undefined || text(input.recent_avg_arrival_time, 16));
   }
   if (value.kind === 'character-message') {
-    return text(input.mode, 16) && ['trigger', 'idle', 'play', 'poke'].includes(input.mode) && text(input.characterStage, 30) && (input.trigger === undefined || text(input.trigger, 40)) && (input.segment === undefined || ['morning', 'afternoon', 'evening', 'night'].includes(String(input.segment)));
+    return text(input.mode, 16) && ['trigger', 'idle', 'play', 'poke'].includes(input.mode) && text(input.characterStage, 30) && (input.trigger === undefined || text(input.trigger, 40)) && (input.segment === undefined || ['morning', 'afternoon', 'evening', 'night'].includes(String(input.segment))) && (input.variant === undefined || finite(input.variant, 0, 99));
   }
   if (value.kind === 'stats-comment') {
     return text(input.monthLabel, 20) && plainObject(input.stats) && finite(input.stats.evaluatedCommutes, 0, 10_000) && finite(input.stats.lateCount, 0, 10_000);
@@ -58,6 +58,32 @@ function validRequest(value: unknown): value is AiRequest {
     return text(input.question, 300) && plainObject(input.context) && (input.context.averageMinutes === null || finite(input.context.averageMinutes, 0, 1_440)) && (input.context.lateRate === null || finite(input.context.lateRate, 0, 100));
   }
   return false;
+}
+
+function normalizedRequest(request: AiRequest): AiRequest {
+  if (request.kind === 'route-comment') return { kind: request.kind, input: { segments: compactRouteSegments(request.input.segments), totalTime: request.input.totalTime, totalDistance: request.input.totalDistance, totalWalk: request.input.totalWalk, departureTime: request.input.departureTime } };
+  if (request.kind === 'route-guide') return { kind: request.kind, input: { commute_type: request.input.commute_type, weather: { precipitation_mm_h: request.input.weather.precipitation_mm_h, probability: request.input.weather.probability, condition: request.input.weather.condition }, ...(request.input.recent_avg_departure_time ? { recent_avg_departure_time: request.input.recent_avg_departure_time } : {}), ...(request.input.recent_avg_arrival_time ? { recent_avg_arrival_time: request.input.recent_avg_arrival_time } : {}) } };
+  if (request.kind === 'assistant') return { kind: request.kind, input: redactAssistantInput(request.input) };
+  if (request.kind === 'character-message') return { kind: request.kind, input: request.input.mode === 'trigger' ? { mode: 'trigger', trigger: request.input.trigger, characterStage: request.input.characterStage, variant: request.input.variant } : request.input.mode === 'idle' ? { mode: 'idle', segment: request.input.segment, characterStage: request.input.characterStage, variant: request.input.variant } : { mode: request.input.mode, characterStage: request.input.characterStage, variant: request.input.variant } };
+  return { kind: request.kind, input: { monthLabel: request.input.monthLabel, stats: { commuteArrivals: request.input.stats.commuteArrivals, evaluatedCommutes: request.input.stats.evaluatedCommutes, workStartMinutes: request.input.stats.workStartMinutes, lateCount: request.input.stats.lateCount, lateRate: request.input.stats.lateRate, avgLateMinutes: request.input.stats.avgLateMinutes, avgCommuteDuration: request.input.stats.avgCommuteDuration, excludedRecords: request.input.stats.excludedRecords } } };
+}
+
+async function readLimitedJson(request: Request): Promise<unknown> {
+  if (!request.body) return null;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_BODY_BYTES) { await reader.cancel(); throw new Error('BODY_TOO_LARGE'); }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
 }
 
 function ipOf(request: Request) {
@@ -127,14 +153,15 @@ export async function POST(request: Request) {
   const length = Number(request.headers.get('content-length') || 0);
   if (length > MAX_BODY_BYTES) return Response.json({ error: 'Request too large' }, { status: 413 });
   let body: unknown;
-  try { body = await request.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }); }
+  try { body = await readLimitedJson(request); } catch (error) { return Response.json({ error: error instanceof Error && error.message === 'BODY_TOO_LARGE' ? 'Request too large' : 'Invalid JSON' }, { status: error instanceof Error && error.message === 'BODY_TOO_LARGE' ? 413 : 400 }); }
   if (!validRequest(body)) return Response.json({ error: 'Invalid request' }, { status: 400 });
+  const safeBody = normalizedRequest(body);
 
-  const cacheKey = createHash('sha256').update(JSON.stringify(body)).digest('hex');
+  const cacheKey = createHash('sha256').update(JSON.stringify(safeBody)).digest('hex');
   const cached = cache.get(cacheKey);
   if (cached && cached.expires > Date.now()) return Response.json({ data: cached.data, cached: true });
   try {
-    const data = await Promise.race([generate(body), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), TIMEOUT_MS))]);
+    const data = await Promise.race([generate(safeBody), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), TIMEOUT_MS))]);
     cache.set(cacheKey, { data, expires: Date.now() + CACHE_TTL_MS });
     if (cache.size > 500) for (const [key, value] of cache) if (value.expires <= Date.now()) cache.delete(key);
     return Response.json({ data });

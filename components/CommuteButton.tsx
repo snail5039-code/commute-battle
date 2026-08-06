@@ -300,11 +300,14 @@ export default function CommuteButton({
 
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[11px] text-neutral-400">{workday.startTime}</span>
-            <span className="text-[13px] font-mono font-semibold text-neutral-800 tabular-nums">
+            <span className="text-[10px] text-neutral-400">출근 {workday.startTime}</span>
+            <span className="text-center text-[10px] text-neutral-500">
+              <span className="block">{activeRecord ? '이동 경과' : isWorking ? '퇴근까지' : '현재 시각'}</span>
+              <span className="font-mono text-[13px] font-semibold text-neutral-800 tabular-nums">
               {activeRecord ? formatElapsed(elapsedMs) : isWorking ? (workRemainingMs > 0 ? formatRemaining(workRemainingMs) : '퇴근 권장') : formatClock(now)}
+              </span>
             </span>
-            <span className="text-[11px] text-neutral-400">{workday.endTime}</span>
+            <span className="text-[10px] text-neutral-400">퇴근 {workday.endTime}</span>
           </div>
           <div className="relative w-full bg-neutral-100 rounded-full h-1.5">
             <div

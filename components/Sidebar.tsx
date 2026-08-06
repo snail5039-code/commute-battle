@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LogIn, Siren } from 'lucide-react';
+import { Siren } from 'lucide-react';
 import { NAV_ITEMS } from '@/lib/nav';
 import StatusIcon from './StatusIcon';
+import LogoutButton from './LogoutButton';
 
 const LABELS: Record<string, string> = {
   '/': '홈', '/map': '이동', '/badges': '배지', '/stats': '통계', '/settings': '설정',
@@ -36,9 +37,7 @@ export default function Sidebar() {
       </nav>
 
       <div className="border-t border-slate-200 pt-3">
-        <Link href="/login" aria-label="로그인" className="group relative flex size-11 items-center justify-center rounded-[14px] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900">
-          <LogIn size={20} aria-hidden="true" /><span className="sidebar-tooltip">로그인</span>
-        </Link>
+        <LogoutButton compact />
       </div>
     </aside>
   );

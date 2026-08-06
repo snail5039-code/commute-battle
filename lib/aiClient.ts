@@ -1,8 +1,9 @@
 import type { PetTriggerKey } from './petTriggers';
-import { IDLE_CHAT_FALLBACK, type TimeSegment } from './petMessages';
+import { IDLE_CHAT_FALLBACK, pickPetLine, type TimeSegment } from './petMessages';
 import { getStatsFallbackComment, type MonthlyStats } from './stats';
 import type { RouteGuideResponse } from './types';
 import type { AiRequest, AiResultMap, AssistantAnswer, AssistantInput, Enhancement, RouteComment, RouteCommentInput, RouteGuideInput } from './aiTypes';
+import { compactRouteSegments, redactAssistantInput, safeRouteGuideInput } from './aiPayload';
 
 export type { RouteComment, RouteCommentInput, RouteCommentSegment, RouteGuideInput } from './aiTypes';
 
@@ -53,23 +54,25 @@ function withFallback<T>(fallback: T, request: Promise<T>): Enhancement<T> {
 
 export function requestRouteComment(input: RouteCommentInput): Enhancement<RouteComment> {
   const fallback = routeFallback(input);
-  return withFallback(fallback, requestAi({ kind: 'route-comment', input: { ...input, departureTime: input.departureTime.toISOString() } }));
+  const safeInput = { segments: compactRouteSegments(input.segments), totalTime: input.totalTime, totalDistance: input.totalDistance, totalWalk: input.totalWalk, departureTime: input.departureTime.toISOString() };
+  return withFallback(fallback, requestAi({ kind: 'route-comment', input: safeInput }));
 }
 export function generateRouteComment(input: RouteCommentInput) { return requestRouteComment(input).enhancement; }
 
 export function requestRouteGuide(input: RouteGuideInput): Enhancement<RouteGuideResponse> {
   const fallback = routeGuideFallback(input);
-  return withFallback(fallback, requestAi({ kind: 'route-guide', input }));
+  return withFallback(fallback, requestAi({ kind: 'route-guide', input: safeRouteGuideInput(input) }));
 }
 export function generateRouteGuide(input: RouteGuideInput) { return requestRouteGuide(input).enhancement; }
 
 function characterRequest(input: Extract<AiRequest, { kind: 'character-message' }>['input'], fallback: string) {
   return withFallback(fallback, requestAi({ kind: 'character-message', input }));
 }
-export function generatePetMessage(trigger: PetTriggerKey, characterStage: string) { return characterRequest({ mode: 'trigger', trigger, characterStage }, PET_FALLBACK[trigger]).enhancement; }
-export function generateIdleChat(segment: TimeSegment, characterStage: string) { return characterRequest({ mode: 'idle', segment, characterStage }, IDLE_CHAT_FALLBACK[segment][0]).enhancement; }
-export function generatePlayMessage(characterStage: string) { return characterRequest({ mode: 'play', characterStage }, '좋아, 같이 놀자!').enhancement; }
-export function generatePokeMessage(characterStage: string) { return characterRequest({ mode: 'poke', characterStage }, '간지러워!').enhancement; }
+const messageVariant = () => Math.floor(Math.random() * 24);
+export function generatePetMessage(trigger: PetTriggerKey, characterStage: string) { return characterRequest({ mode: 'trigger', trigger, characterStage, variant: messageVariant() }, PET_FALLBACK[trigger]).enhancement; }
+export function generateIdleChat(segment: TimeSegment, characterStage: string) { return characterRequest({ mode: 'idle', segment, characterStage, variant: messageVariant() }, pickPetLine(IDLE_CHAT_FALLBACK[segment])).enhancement; }
+export function generatePlayMessage(characterStage: string) { return characterRequest({ mode: 'play', characterStage, variant: messageVariant() }, pickPetLine(['좋아, 같이 놀자!', '기분 좋아졌어! 한 번 더!', '잠깐 쉬면서 나랑 놀자.', '헤헤, 네가 놀아주니까 신난다!'])).enhancement; }
+export function generatePokeMessage(characterStage: string) { return characterRequest({ mode: 'poke', characterStage, variant: messageVariant() }, pickPetLine(['간지러워!', '왜 불렀어? 기록 확인해줄까?', '나 여기 있어!', '콕 찔렀지? 오늘도 같이 힘내자!', '응? 무슨 일이야?'])).enhancement; }
 
 export function requestStatsComment(stats: MonthlyStats, monthLabel: string): Enhancement<string> {
   const fallback = getStatsFallbackComment(stats);
@@ -81,7 +84,7 @@ export function generateStatsComment(stats: MonthlyStats, monthLabel: string) { 
 
 export function requestAssistant(input: AssistantInput): Enhancement<AssistantAnswer> {
   const fallback: AssistantAnswer = { text: '현재 기록을 바탕으로 출발 시각, 이동 시간, 지각률 질문을 도와드릴 수 있어요.', details: ['AI 응답을 사용할 수 없어 규칙 기반 답변을 유지합니다.'], conclusion: '규칙 기반 답변을 확인해 주세요.', cautions: ['실제 교통·날씨 상황과 차이가 있을 수 있습니다.'], fallback: true };
-  return withFallback(fallback, requestAi({ kind: 'assistant', input }));
+  return withFallback(fallback, requestAi({ kind: 'assistant', input: redactAssistantInput(input) }));
 }
 
 export async function generateDifficultyMessage(weather: RouteGuideInput['weather']): Promise<string> {

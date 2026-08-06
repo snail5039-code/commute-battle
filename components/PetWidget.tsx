@@ -14,7 +14,8 @@ import {
   isPetQuiet,
   markSpokenToday,
 } from '@/lib/petTriggers';
-import { getTimeSegment } from '@/lib/petMessages';
+import { getTimeSegment, pickPetLine, recordCoachLines } from '@/lib/petMessages';
+import { loadLocalSettings } from '@/lib/store';
 import { STAGE_NAMES } from '@/lib/characterStages';
 import { showOsNotification } from '@/lib/notifications';
 import CharacterIcon from './CharacterIcon';
@@ -23,10 +24,8 @@ import {
   useSelectedPetId,
 } from '@/lib/petCatalog';
 
-const CHECK_INTERVAL_MS = 60 * 1000;
+const CHECK_INTERVAL_MS = 25 * 1000;
 const WANDER_INTERVAL_MS = 9 * 1000;
-const IDLE_CHAT_CHANCE = 0.12;
-const IDLE_CHAT_COOLDOWN_MS = 5 * 60 * 1000;
 const PET_SIZE = 48;
 const DRAG_THRESHOLD = 4;
 
@@ -65,6 +64,7 @@ export default function PetWidget() {
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevStage = useRef<string | null>(null);
   const lastIdleChatAt = useRef(0);
+  const lastCoachAt = useRef(0);
   const busy = useRef(false);
   const reactingRef = useRef(false);
 
@@ -155,6 +155,8 @@ export default function PetWidget() {
     if (!user || isPetQuiet() || busy.current) return;
 
     const now = new Date();
+    const frequency = loadLocalSettings(user.id).petMessageFrequency;
+    if (frequency === 'quiet') return;
     const trigger = detectPetTrigger(records, now);
 
     if (trigger) {
@@ -166,11 +168,20 @@ export default function PetWidget() {
       return;
     }
 
+    const cooldown = frequency === 'frequent' ? 55_000 : 110_000;
+    const chance = frequency === 'frequent' ? 0.9 : 0.62;
+    const coachLines = recordCoachLines(records, now);
+    if (!messageRef.current && coachLines.length && Date.now() - lastCoachAt.current > cooldown && Math.random() < chance) {
+      lastCoachAt.current = Date.now();
+      speak(pickPetLine(coachLines));
+      return;
+    }
+
     const sinceLastIdle = Date.now() - lastIdleChatAt.current;
     if (
       !messageRef.current &&
-      sinceLastIdle > IDLE_CHAT_COOLDOWN_MS &&
-      Math.random() < IDLE_CHAT_CHANCE
+      sinceLastIdle > cooldown &&
+      Math.random() < chance
     ) {
       busy.current = true;
       lastIdleChatAt.current = Date.now();

@@ -38,10 +38,12 @@ export interface RouteGuideInput {
   recent_avg_arrival_time?: string;
 }
 
-export type CharacterMessageInput =
+export type RouteGuideAiInput = Omit<RouteGuideInput, 'home_address' | 'work_address'>;
+
+export type CharacterMessageInput = (
   | { mode: 'trigger'; trigger: PetTriggerKey; characterStage: string }
   | { mode: 'idle'; segment: TimeSegment; characterStage: string }
-  | { mode: 'play' | 'poke'; characterStage: string };
+  | { mode: 'play' | 'poke'; characterStage: string }) & { variant?: number };
 
 export interface StatsCommentInput {
   stats: {
@@ -67,7 +69,7 @@ export interface AssistantAnswer { text: string; details: string[]; conclusion?:
 
 export type AiRequest =
   | { kind: 'route-comment'; input: Omit<RouteCommentInput, 'departureTime'> & { departureTime: string } }
-  | { kind: 'route-guide'; input: RouteGuideInput }
+  | { kind: 'route-guide'; input: RouteGuideAiInput }
   | { kind: 'character-message'; input: CharacterMessageInput }
   | { kind: 'stats-comment'; input: StatsCommentInput }
   | { kind: 'assistant'; input: AssistantInput };

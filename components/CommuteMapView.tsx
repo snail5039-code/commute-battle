@@ -16,7 +16,7 @@ import RouteFavoritesPanel from '@/components/RouteFavoritesPanel';
 interface CommuteMapViewProps { user: User; activeRecord: CommuteRecord; onArrive: () => Promise<void>; onClose: () => void }
 type TravelMode = 'walk' | 'transit';
 type StartBasis = 'current' | 'saved';
-type LocationStatus = 'locating' | 'tracking' | 'fallback' | 'unavailable';
+type LocationStatus = 'locating' | 'tracking' | 'degraded' | 'fallback' | 'unavailable';
 interface RouteSegment {
   trafficType: number;
   providerTrafficType?: number | null;
@@ -55,6 +55,7 @@ const OFF_ROUTE_THRESHOLD_M = 150;
 const OFF_ROUTE_REQUIRED_SAMPLES = 3;
 const OFF_ROUTE_REQUIRED_MS = 60_000;
 const REROUTE_COOLDOWN_MS = 120_000;
+const LOCATION_RETRY_MS = 3_000;
 
 const BADGE_LABEL = { fastest: '빠른 경로', 'least-walking': '도보 적은 경로', 'fewest-transfers': '환승 적은 경로' } as const;
 
@@ -186,6 +187,8 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   const fixedOverlaysRef = useRef<Array<{ setMap(map: kakao.maps.Map | null): void }>>([]);
   const currentOverlayRef = useRef<kakao.maps.CustomOverlay | null>(null);
   const watchRef = useRef<number | null>(null);
+  const locationRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshLocationRef = useRef<(() => void) | null>(null);
   const currentLocationRef = useRef<LatLng | null>(null);
   const routeRef = useRef<RouteResponse | null>(null);
   const addressStartRef = useRef<LatLng | null>(null);
@@ -340,12 +343,15 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
         })
       : null;
 
-    const acceptLivePosition = (position: GeolocationPosition, initial: boolean) => {
+    const acceptLivePosition = (position: GeolocationPosition, initial: boolean, recenter = false) => {
       if (cancelled) return;
       const candidate = { ...coordinates(position), accuracy: position.coords.accuracy, timestamp: position.timestamp };
       const accepted = acceptLocationSample(candidate, acceptedLocationRef.current);
       if (!accepted) {
-        setProgressNotice(`GPS 정확도가 낮거나 오래된 위치입니다 (정확도 ${Math.round(position.coords.accuracy)}m). 진행 상황은 추정 상태로 유지됩니다.`);
+        const ageSeconds = Math.max(0, Math.round((Date.now() - position.timestamp) / 1000));
+        setLocationStatus('degraded');
+        setLocationNotice(`GPS 신호가 불안정해 새 위치를 다시 찾는 중이에요 · 정확도 ${Math.round(position.coords.accuracy)}m · ${ageSeconds}초 전`);
+        setProgressNotice('정확도가 낮거나 오래된 GPS 위치는 사용하지 않았어요. 자동으로 새 위치를 요청합니다.');
         return;
       }
       acceptedLocationRef.current = accepted;
@@ -355,7 +361,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
         initialViewportSetRef.current = true;
         userCenteredRef.current = true;
       }
-      showCurrentPosition(point, shouldSetInitialViewport);
+      showCurrentPosition(point, shouldSetInitialViewport || recenter);
       setHasCurrentLocation(true);
       setLocationStatus('tracking');
       setLocationNotice(`현재 위치 사용 중 · 정확도 약 ${Math.round(accepted.accuracy)}m`);
@@ -406,6 +412,41 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
       }
     };
 
+    const clearLocationRetry = () => {
+      if (locationRetryRef.current) clearTimeout(locationRetryRef.current);
+      locationRetryRef.current = null;
+    };
+    const startWatching = () => {
+      if (cancelled || !navigator.geolocation) return;
+      clearLocationRetry();
+      if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
+      watchRef.current = navigator.geolocation.watchPosition((update) => {
+        const before = acceptedLocationRef.current;
+        acceptLivePosition(update, false);
+        if (acceptedLocationRef.current === before && !cancelled) locationRetryRef.current = setTimeout(startWatching, LOCATION_RETRY_MS);
+      }, (watchError) => {
+        if (cancelled) return;
+        setLocationStatus(watchError.code === watchError.PERMISSION_DENIED ? 'unavailable' : 'degraded');
+        setLocationNotice(locationErrorMessage(watchError));
+        if (watchError.code !== watchError.PERMISSION_DENIED) locationRetryRef.current = setTimeout(startWatching, LOCATION_RETRY_MS);
+      }, GEO_OPTIONS);
+    };
+    const requestFreshLocation = () => {
+      if (!navigator.geolocation) {
+        setLocationStatus('unavailable');
+        setLocationNotice('브라우저가 위치 정보를 지원하지 않아요.');
+        return;
+      }
+      setLocationStatus('locating');
+      setLocationNotice('새 GPS 위치를 확인하고 있어요.');
+      navigator.geolocation.getCurrentPosition(
+        (position) => { acceptLivePosition(position, false, true); startWatching(); },
+        (positionError) => { setLocationStatus(positionError.code === positionError.PERMISSION_DENIED ? 'unavailable' : 'degraded'); setLocationNotice(locationErrorMessage(positionError)); startWatching(); },
+        { ...GEO_OPTIONS, maximumAge: 0 },
+      );
+    };
+    refreshLocationRef.current = requestFreshLocation;
+
     loadKakaoMapSdk().then(async (sdk) => {
       if (cancelled || !containerRef.current) return;
       mapRef.current = new sdk.maps.Map(containerRef.current, { center: new sdk.maps.LatLng(SEOUL.lat, SEOUL.lng), level: 5 });
@@ -441,8 +482,11 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
           acceptLivePosition(result.position, true);
           setMapReady(true);
           setLoading(false);
-          watchRef.current = navigator.geolocation.watchPosition((update) => acceptLivePosition(update, false), (watchError) => setLocationNotice(locationErrorMessage(watchError)), GEO_OPTIONS);
-        } else applyFallback(locationErrorMessage(result.error));
+          startWatching();
+        } else {
+          applyFallback(locationErrorMessage(result.error));
+          if (result.error.code !== result.error.PERMISSION_DENIED) startWatching();
+        }
       }
       showFixedMarkers();
       if (!endRef.current) setError('도착지 위치를 확인할 수 없습니다. 등록된 주소를 확인해 주세요.');
@@ -451,6 +495,8 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
     });
     return () => {
       cancelled = true;
+      refreshLocationRef.current = null;
+      clearLocationRetry();
       if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
       watchRef.current = null;
       requestIdRef.current += 1;
@@ -532,9 +578,8 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   }, [route, routeDepartureAt]);
   const arrive = async () => { setArriving(true); try { await onArrive(); } finally { setArriving(false); } };
   const recenter = () => {
-    if (!currentLocationRef.current) return;
     userCenteredRef.current = true;
-    showCurrentPosition(currentLocationRef.current, true);
+    refreshLocationRef.current?.();
   };
   const changeMode = (nextMode: TravelMode) => {
     if (nextMode === mode) return;
@@ -611,11 +656,11 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   const hasRoadReference = mode === 'transit' && Boolean(route?.segments.some(isRoadReference));
 
   const panel = (
-    <aside className="flex shrink-0 flex-col bg-white p-4 shadow-[0_-8px_30px_rgba(15,23,42,0.12)] md:h-full md:min-h-0 md:w-[360px] md:border-l md:border-neutral-200 md:shadow-none">
+    <aside className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(15,23,42,0.12)] md:h-full md:w-[360px] md:flex-none md:border-l md:border-neutral-200 md:pb-4 md:shadow-none">
       <div className="mb-3 flex w-fit rounded-full bg-neutral-100 p-1">
         {(['walk', 'transit'] as const).map((value) => <button key={value} onClick={() => changeMode(value)} aria-pressed={mode === value} className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold ${mode === value ? 'bg-neutral-900 text-white shadow-sm' : 'text-neutral-500'}`}>{value === 'walk' ? <Footprints size={13} /> : <Bus size={13} />}{value === 'walk' ? '도보' : '대중교통'}</button>)}
       </div>
-      {mode === 'transit' && <div className="mb-3"><p className="mb-1 text-[10px] font-bold text-neutral-500">기본 경로 선호 · 이 기기에 저장</p><div className="grid grid-cols-3 gap-1 rounded-xl bg-neutral-100 p-1" aria-label="기본 경로 선호">{(['fastest', 'least-walking', 'fewest-transfers'] as const).map((preference) => <button key={preference} type="button" onClick={() => changeRoutePreference(preference)} aria-pressed={routePreference === preference} className={`rounded-lg px-1 py-2 text-[10px] font-semibold ${routePreference === preference ? 'bg-white text-blue-700 shadow-sm' : 'text-neutral-500'}`}>{BADGE_LABEL[preference]}</button>)}</div></div>}
+      {mode === 'transit' && <div className="mb-3"><p className="mb-1 text-[10px] font-bold text-neutral-500">기본 경로 선호 · 이 기기에 저장</p><div className="grid grid-cols-3 gap-1 rounded-xl bg-neutral-100 p-1" aria-label="기본 경로 선호">{(['fastest', 'least-walking', 'fewest-transfers'] as const).map((preference) => <button key={preference} type="button" onClick={() => changeRoutePreference(preference)} aria-pressed={routePreference === preference} className={`whitespace-nowrap rounded-lg px-1 py-2 text-[10px] font-semibold ${routePreference === preference ? 'bg-white text-blue-700 shadow-sm' : 'text-neutral-500'}`}>{BADGE_LABEL[preference]}</button>)}</div></div>}
       {mode === 'transit' && <RouteFavoritesPanel direction={direction} favorites={favorites} learningEnabled={learningEnabled} onToggleLearning={toggleLearning} onResetLearning={resetLearning} />}
       <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-neutral-100 p-1" aria-label="출발 기준">
         {(['current', 'saved'] as const).map((value) => <button key={value} type="button" onClick={() => changeStartBasis(value)} disabled={value === 'current' ? !hasCurrentLocation : !hasSavedStart} aria-pressed={startBasis === value} className={`rounded-lg px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${startBasis === value ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}>{value === 'current' ? '현재 위치에서' : '저장한 주소에서'}</button>)}
@@ -634,7 +679,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
       {route && !loading && (hasUnavailableTransitGeometry || hasUnavailableWalkingGeometry || hasRoadReference) && <div className="mb-3 space-y-1.5 rounded-xl border border-orange-200 bg-orange-50 p-3 text-xs text-orange-900" aria-label="지도 경로 표시 안내">{hasUnavailableTransitGeometry && <p><strong>상세 경로 미제공</strong> · 좌표가 없는 대중교통 구간은 승·하차 지점만 표시합니다.</p>}{hasUnavailableWalkingGeometry && <p><strong>상세 도보 경로 미제공</strong> · 직선 연결선 대신 도보 구간의 승·하차 지점만 표시합니다.</p>}{hasRoadReference && <p className="flex items-center gap-2"><span aria-hidden="true" className="inline-block w-8 border-t-[3px] border-dashed border-orange-500" /><span><strong>도로 기반 참고선</strong> · TMAP 차량 도로 geometry</span></p>}</div>}
       {loading && locationStatus !== 'locating' && <div className="flex items-center gap-2 rounded-xl bg-neutral-50 p-3 text-sm text-neutral-500"><Navigation className="animate-pulse" size={16} />경로를 찾고 있어요</div>}
       {error && !loading && <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"><div className="flex gap-2"><AlertCircle className="mt-0.5 shrink-0" size={16} /><div><strong className="block text-xs">이 경로를 표시할 수 없어요</strong><span>{error}</span></div></div><button onClick={() => changeMode(mode === 'walk' ? 'transit' : 'walk')} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold shadow-sm">{mode === 'walk' ? '대중교통 대안 보기' : '도보 대안 보기'}</button></div>}
-      {route && !loading && <div className="min-h-0 flex-1 overflow-y-auto pr-1"><div className="flex items-end justify-between border-b border-neutral-100 pb-4"><div><p className="text-xs text-neutral-500">예상 소요 시간</p><strong className="text-2xl text-neutral-900">{formatMinutes(route.summary.totalTime)}</strong></div><span className="text-sm text-neutral-500">{formatDistance(route.summary.totalDistance)}</span></div><ol className="mt-4" aria-label="상세 이동 경로">{route.segments.map((segment, index) => {
+      {route && !loading && <div className="pr-1"><div className="flex items-end justify-between border-b border-neutral-100 pb-4"><div><p className="text-xs text-neutral-500">경로 검색 시점 기준 예상 소요</p><strong className="text-2xl text-neutral-900">{formatMinutes(route.summary.totalTime)}</strong><p className="mt-1 text-[10px] text-neutral-400">기록 시작 {formatClock(new Date(activeRecord.start_time ?? routeDepartureAt))} · 경로 검색 {formatClock(new Date(routeDepartureAt))}</p></div><span className="text-sm text-neutral-500">{formatDistance(route.summary.totalDistance)}</span></div><ol className="mt-4" aria-label="상세 이동 경로">{route.segments.map((segment, index) => {
         const elapsed = route.segments.slice(0, index).reduce((sum, item) => sum + item.sectionTime, 0);
         const startsAt = new Date(routeDepartureAt + elapsed * 60000);
         const endsAt = new Date(startsAt.getTime() + segment.sectionTime * 60000);
@@ -652,16 +697,16 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   );
 
   return (
-    <div className="fixed inset-0 z-40 flex h-[100dvh] flex-col overflow-hidden bg-white">
+    <div className="fixed inset-0 z-40 flex h-[100dvh] flex-col overflow-hidden bg-white md:left-[88px]">
       <header className="relative z-20 flex shrink-0 items-center justify-between border-b border-neutral-100 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))]">
         <div><p className="text-[13px] font-semibold text-neutral-900">{activeRecord.type === 'commute' ? '출근 이동 중' : '퇴근 이동 중'}</p><p className="text-[11px] text-neutral-400">현재 위치와 경로를 실시간으로 확인하세요</p></div>
         <button onClick={onClose} aria-label="지도 닫기" className="rounded-full p-2 text-neutral-500 hover:bg-neutral-100"><X size={18} /></button>
       </header>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain md:flex-row md:overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
         <div className="relative h-[45dvh] min-h-64 shrink-0 md:h-auto md:min-h-0 md:flex-1">
           <div ref={containerRef} data-map-interactive className="absolute inset-0 touch-none" />
           <div className="absolute left-3 top-3 z-20 rounded-lg bg-white/90 px-2 py-1 text-[10px] text-neutral-500 shadow"><MapPin className="mr-1 inline" size={11} />파랑 현재 · 검정 출발 · 빨강 도착</div>
-          <button type="button" onClick={recenter} disabled={!hasCurrentLocation} className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 rounded-full bg-white px-3 py-2 text-xs font-semibold text-neutral-700 shadow-lg disabled:cursor-not-allowed disabled:opacity-50"><Crosshair size={15} />내 위치로</button>
+          <button type="button" onClick={recenter} disabled={locationStatus === 'locating'} aria-busy={locationStatus === 'locating'} className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 rounded-full bg-white px-3 py-2 text-xs font-semibold text-neutral-700 shadow-lg disabled:cursor-wait disabled:opacity-70"><Crosshair className={locationStatus === 'locating' ? 'animate-pulse' : ''} size={15} />{locationStatus === 'locating' ? '위치 확인 중…' : hasCurrentLocation ? '내 위치 새로고침' : '내 위치 찾기'}</button>
         </div>
         {panel}
       </div>
