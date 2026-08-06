@@ -43,7 +43,7 @@ body {
 button, input, select, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button:not(:disabled), a { cursor: pointer; }
-img, svg { max-width: 100%; }
+img { max-width: 100%; }
 
 :focus-visible {
   outline: 3px solid rgba(37, 99, 235, 0.3);
