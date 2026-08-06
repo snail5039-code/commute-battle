@@ -1,6 +1,6 @@
 import 'server-only';
 import { createHash } from 'node:crypto';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, type GenerationConfig } from '@google/generative-ai';
 import type { AiRequest, RouteComment } from '@/lib/aiTypes';
 import { AI_BODY_LIMIT_BYTES, AI_ROUTE_SEGMENT_LIMIT, compactRouteSegments, redactAssistantInput } from '@/lib/aiPayload';
 
@@ -141,7 +141,11 @@ function validateResult(kind: AiRequest['kind'], value: unknown): unknown {
 async function generate(request: AiRequest) {
   const key = apiKey();
   if (!key) throw new Error('AI_NOT_CONFIGURED');
-  const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: MODEL, generationConfig: { responseMimeType: 'application/json', temperature: 0.35, maxOutputTokens: 500 } });
+  // gemini-2.5-flash spends part of maxOutputTokens on hidden "thinking" tokens before the
+  // visible JSON, which otherwise eats the whole budget and truncates the response mid-string.
+  // These are plain structured-output tasks that don't need that reasoning, so disable it.
+  const generationConfig = { responseMimeType: 'application/json', temperature: 0.35, maxOutputTokens: 1500, thinkingConfig: { thinkingBudget: 0 } } as GenerationConfig;
+  const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: MODEL, generationConfig });
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try { return validateResult(request.kind, extractJson((await model.generateContent(promptFor(request))).response.text())); }
