@@ -152,7 +152,7 @@ function transitStage(segment: RouteSegment) {
 }
 
 function isRoadReference(segment: RouteSegment) {
-  return /tmap.*(?:road|vehicle)|(?:road|vehicle).*tmap/i.test(segment.geometrySource || '');
+  return /road-reference|tmap.*(?:road|vehicle)|(?:road|vehicle).*tmap/i.test(segment.geometrySource || '');
 }
 
 function hasActualTransitGeometry(segment: RouteSegment) {

@@ -34,7 +34,7 @@ interface Segment {
   distance: number;
   sectionTime: number;
   points: Point[];
-  geometrySource?: 'odsay' | 'tmap-pedestrian' | 'tmap-road-reference' | 'endpoint-connector' | 'unavailable';
+  geometrySource?: 'odsay' | 'tmap-pedestrian' | 'tmap-road-reference' | 'osrm-road-reference' | 'endpoint-connector' | 'unavailable';
   estimatedGeometry?: boolean;
 }
 interface OdsaySubPath {
@@ -240,8 +240,22 @@ async function roadReference(start: Point, end: Point, key: string): Promise<Poi
   return points;
 }
 
-async function estimatedTransitReference(start: Point, end: Point, key: string) {
-  const points = await roadReference(start, end, key);
+async function osrmRoadReference(start: Point, end: Point): Promise<Point[]> {
+  const coordinates = `${start.lng},${start.lat};${end.lng},${end.lat}`;
+  const url = new URL(`https://router.project-osrm.org/route/v1/driving/${coordinates}`);
+  url.searchParams.set('overview', 'full');
+  url.searchParams.set('geometries', 'geojson');
+  const response = await fetch(url, { headers: { 'User-Agent': 'commute-battle/1.0' } });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || data?.code !== 'Ok') throw new Error('무료 도로 경로를 불러오지 못했습니다.');
+  const points = compact((data?.routes?.[0]?.geometry?.coordinates || [])
+    .map((coordinate: unknown) => Array.isArray(coordinate) ? { lng: Number(coordinate[0]), lat: Number(coordinate[1]) } : null)
+    .filter((point: Point | null): point is Point => !!point && validPoint(point)));
+  if (points.length < 2) throw new Error('무료 도로 경로 좌표가 없습니다.');
+  return points;
+}
+
+function transitReferenceResponse(start: Point, end: Point, points: Point[], source: 'tmap-road-reference' | 'osrm-road-reference' | 'endpoint-connector') {
   const totalDistance = Math.max(1, Math.round(polylineDistance(points)));
   const totalTime = Math.max(1, Math.round((totalDistance / 1000) / 45 * 60));
   const segment: Segment = {
@@ -252,25 +266,58 @@ async function estimatedTransitReference(start: Point, end: Point, key: string) 
     distance: totalDistance,
     sectionTime: totalTime,
     points,
-    geometrySource: 'tmap-road-reference',
+    geometrySource: source,
     estimatedGeometry: true,
   };
   return {
-    summary: {
-      totalTime,
-      totalDistance,
-      totalWalk: 0,
-      payment: 0,
-      firstStartStation: null,
-      lastEndStation: null,
-      transferCount: 0,
-    },
+    summary: { totalTime, totalDistance, totalWalk: 0, payment: 0, firstStartStation: null, lastEndStation: null, transferCount: 0 },
     segments: [segment],
     polyline: points,
     intelligence: analyzeRoute([segment], []),
     isEstimated: true,
-    provider: 'tmap-reference',
-    notice: '상세 경로 좌표를 받지 못해 도로를 따라 참고용 점선 경로를 표시합니다.',
+    provider: source === 'tmap-road-reference' ? 'tmap-reference' : source === 'osrm-road-reference' ? 'osrm-reference' : 'direct-reference',
+    notice: source === 'endpoint-connector'
+      ? '외부 경로 연결이 지연되어 출발지와 도착지를 점선으로 표시합니다.'
+      : '상세 구간 일부를 받지 못해 도로를 따라 참고용 점선 경로를 표시합니다.',
+  };
+}
+
+async function estimatedTransitReference(start: Point, end: Point, key: string) {
+  const points = await roadReference(start, end, key);
+  return transitReferenceResponse(start, end, points, 'tmap-road-reference');
+}
+
+async function estimatedOdsayReference(path: OdsayPath, start: Point, end: Point, key: string) {
+  const rawSegments = await pathSegments(path, key);
+  const connected = connectSegmentPoints(start, end, fillMissingSegmentPoints(start, end, rawSegments));
+  const segments = connected.map((segment) => ({
+    ...segment,
+    geometrySource: segment.geometrySource || (segment.trafficType === 3 ? 'endpoint-connector' : 'odsay'),
+    estimatedGeometry: true,
+  } satisfies Segment));
+  const polyline = compact(segments.flatMap((segment) => segment.points));
+  if (polyline.length < 2) throw new Error('표시할 대중교통 경로 좌표가 없습니다.');
+  const measuredDistance = Math.max(1, Math.round(polylineDistance(polyline)));
+  const totalDistance = Math.max(measuredDistance, metric(path.info?.totalWalk));
+  const totalTime = Math.max(1, metric(path.info?.totalTime) || Math.round((totalDistance / 1000) / 35 * 60));
+  const totalWalk = segments.filter((segment) => segment.trafficType === 3).reduce((sum, segment) => sum + segment.distance, 0);
+  return {
+    id: pathKey(path),
+    summary: {
+      totalTime,
+      totalDistance,
+      totalWalk,
+      payment: metric(path.info?.payment),
+      firstStartStation: path.info?.firstStartStation || null,
+      lastEndStation: path.info?.lastEndStation || null,
+      transferCount: Math.max(0, segments.filter((segment) => segment.trafficType !== 3).length - 1),
+    },
+    segments,
+    polyline,
+    intelligence: analyzeRoute(segments, []),
+    isEstimated: true,
+    provider: 'odsay-reference',
+    notice: '상세 구간 일부를 받지 못해 확인된 대중교통 좌표를 점선으로 연결해 표시합니다.',
   };
 }
 
@@ -454,6 +501,7 @@ export async function GET(req: NextRequest) {
   const odsayKey = cleanSecret(process.env.ODSAY_API_KEY);
   if (mode === 'transit' && !odsayKey) return NextResponse.json({ error: '경로 서비스 설정이 완료되지 않았습니다.', code: 'PROVIDER_NOT_CONFIGURED', missing: ['ODSAY_API_KEY'] }, { status: 503 });
 
+  let transitPaths: OdsayPath[] = [];
   try {
     if (mode === 'walk') {
       if (!tmapKey) return NextResponse.json(estimatedWalking(start, end));
@@ -466,25 +514,41 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const paths = (await odsayPaths(start, end, odsayKey!)).filter((candidate) => candidate.subPath?.some((part) => [1, 2, 4, 5, 6].includes(part.trafficType)));
-    if (!paths.length) throw new ProviderError('odsay', 'ROUTE_NOT_FOUND', 404, '버스 또는 지하철 구간이 포함된 대중교통 경로를 찾지 못했습니다.');
-    const selected = selectCandidateKeys(paths.map((path) => ({
+    transitPaths = (await odsayPaths(start, end, odsayKey!)).filter((candidate) => candidate.subPath?.some((part) => [1, 2, 4, 5, 6].includes(part.trafficType)));
+    if (!transitPaths.length) throw new ProviderError('odsay', 'ROUTE_NOT_FOUND', 404, '버스 또는 지하철 구간이 포함된 대중교통 경로를 찾지 못했습니다.');
+    const selected = selectCandidateKeys(transitPaths.map((path) => ({
       key: pathKey(path),
       totalTime: metric(path.info?.totalTime),
       totalWalk: metric(path.info?.totalWalk),
       transferCount: Math.max(0, (path.subPath || []).filter((part) => part.trafficType !== 3).length - 1),
     })));
-    const results = await Promise.allSettled(selected.map(({ key, badges }) => buildTransitCandidate(paths.find((path) => pathKey(path) === key)!, start, end, odsayKey!, tmapKey, badges)));
+    const results = await Promise.allSettled(selected.map(({ key, badges }) => buildTransitCandidate(transitPaths.find((path) => pathKey(path) === key)!, start, end, odsayKey!, tmapKey, badges)));
     const candidates = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
     if (!candidates.length) throw results.find((result) => result.status === 'rejected')?.reason || new Error('경로 후보를 구성하지 못했습니다.');
     return NextResponse.json({ ...candidates[0], candidates });
   } catch (error) {
     console.error('Route lookup failed:', error);
+    if (mode === 'transit' && odsayKey && transitPaths.length) {
+      try {
+        return NextResponse.json(await estimatedOdsayReference(transitPaths[0], start, end, odsayKey));
+      } catch (referenceError) {
+        console.warn('ODSAY transit reference unavailable:', referenceError);
+      }
+    }
     if (mode === 'transit' && tmapKey) {
       try {
         return NextResponse.json(await estimatedTransitReference(start, end, tmapKey));
       } catch (referenceError) {
         console.warn('TMAP transit reference unavailable:', referenceError);
+      }
+    }
+    if (mode === 'transit') {
+      try {
+        const points = await osrmRoadReference(start, end);
+        return NextResponse.json(transitReferenceResponse(start, end, points, 'osrm-road-reference'));
+      } catch (referenceError) {
+        console.warn('OSRM transit reference unavailable:', referenceError);
+        return NextResponse.json(transitReferenceResponse(start, end, [start, end], 'endpoint-connector'));
       }
     }
     if (error instanceof ProviderError) return NextResponse.json({ error: error.message, code: error.code, provider: error.provider, fallback: fallback(start, end) }, { status: error.status });
