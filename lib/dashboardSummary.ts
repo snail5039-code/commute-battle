@@ -101,6 +101,6 @@ export function summarizeReturnRoute(user: User): ReturnRouteSummary {
   return {
     origin: compactAddress(user.work_address),
     destination: compactAddress(user.home_address),
-    route: recent ?? (favorite ? { ...favorite, direction: 'return', selectedAt: favorite.savedAt, source: 'favorite' } : null),
+    route: favorite ? { ...favorite, direction: 'return', selectedAt: favorite.savedAt, source: 'favorite' } : recent,
   };
 }
