@@ -256,7 +256,7 @@ export default function CommuteButton({
         <div className="grid grid-cols-2 gap-2.5">
           <button
             onClick={() => requestRoute('commute')}
-            disabled={!!loadingAction || !!activeRecord}
+            disabled={!!loadingAction || !!activeRecord || commuteCount > returnCount}
             className={`group relative flex min-h-24 flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border py-4 text-[12px] font-bold transition-all disabled:cursor-not-allowed ${
               commuteCount > 0
                 ? 'border-sky-100 bg-sky-50 text-sky-700 disabled:opacity-60'
@@ -276,7 +276,7 @@ export default function CommuteButton({
 
           <button
             onClick={() => requestRoute('return')}
-            disabled={!!loadingAction || !!activeRecord}
+            disabled={!!loadingAction || !!activeRecord || commuteCount <= returnCount}
             className={`group relative flex min-h-24 flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border py-4 text-[12px] font-bold transition-all disabled:cursor-not-allowed ${
               returnCount > 0
                 ? 'border-indigo-100 bg-indigo-50 text-indigo-700 disabled:opacity-60'
