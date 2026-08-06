@@ -1,9 +1,12 @@
 'use client';
 
+import Link from 'next/link';
+import { ChevronRight, LockKeyhole } from 'lucide-react';
 import { CommuteRecord, User } from '@/lib/types';
 import { getBadgeSummary } from '@/lib/badges';
 import { getExpNeeded, NEXT_EVOLUTION } from '@/lib/characterStages';
 import { PET_CATALOG, PET_IDS, storePetId, useSelectedPetId, type PetId } from '@/lib/petCatalog';
+import BadgeIcon from './BadgeIcon';
 import CharacterIcon from './CharacterIcon';
 
 interface CharacterCardProps {
@@ -19,7 +22,8 @@ export default function CharacterCard({ user, records, selectedPetId, onPetChang
   const pet = PET_CATALOG[petId];
   const expNeeded = getExpNeeded(user.character_level);
   const expPercent = Math.min((user.character_exp / expNeeded) * 100, 100);
-  const { completed: badgeCount } = getBadgeSummary(records);
+  const { progress, completed: badgeCount, total: badgeTotal } = getBadgeSummary(records);
+  const upNext = progress.filter((item) => !item.completed).sort((a, b) => b.percent - a.percent || a.badge.target - b.badge.target).slice(0, 3);
 
   const selectPet = (nextPetId: PetId) => {
     storePetId(nextPetId);
@@ -27,7 +31,7 @@ export default function CharacterCard({ user, records, selectedPetId, onPetChang
   };
 
   return (
-    <div className="card self-start p-5">
+    <div className="card h-full p-5">
       <div className="flex items-center gap-4">
         <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 ring-1 ring-black/[0.04]" style={{ backgroundColor: pet.softColor }}>
           <CharacterIcon stage={user.character_stage} petId={petId} size={28} strokeWidth={1.75} />
@@ -53,6 +57,39 @@ export default function CharacterCard({ user, records, selectedPetId, onPetChang
           })}
         </div>
       </fieldset>
+
+      <section className="mt-4 border-t border-slate-100 pt-4" aria-labelledby="pet-badge-title">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 id="pet-badge-title" className="text-xs font-bold text-slate-800">배지 도전</h3>
+            <p className="mt-0.5 text-[10px] text-slate-400">펫과 함께 다음 배지를 모아 보세요</p>
+          </div>
+          <Link href="/badges" className="flex shrink-0 items-center text-[11px] font-semibold text-blue-600" aria-label={`배지 ${badgeCount}/${badgeTotal}, 전체 보기`}>
+            {badgeCount} / {badgeTotal}<ChevronRight size={13} />
+          </Link>
+        </div>
+
+        <div className="mt-3 grid gap-2.5">
+          {upNext.length === 0 ? (
+            <p className="rounded-xl bg-amber-50 px-3 py-3 text-center text-[11px] font-medium text-amber-700">모든 배지를 해금했어요!</p>
+          ) : upNext.map(({ badge, displayed, percent, revealed }) => (
+            <div key={badge.key} className="flex min-w-0 items-center gap-2.5">
+              <div className={`grid size-8 shrink-0 place-items-center rounded-lg ring-1 ring-inset ${revealed ? 'bg-indigo-50 text-indigo-600 ring-indigo-100' : 'bg-slate-100 text-slate-400 ring-slate-200'}`}>
+                {revealed ? <BadgeIcon icon={badge.icon} size={14} /> : <LockKeyhole size={13} />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <p className="truncate font-semibold text-slate-700">{revealed ? badge.name : '비밀 배지'}</p>
+                  <span className="shrink-0 text-[10px] text-slate-400">{displayed}/{badge.target}{badge.unit}</span>
+                </div>
+                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-gradient-to-r from-blue-400 to-indigo-500" style={{ width: `${percent}%` }} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

@@ -6,7 +6,6 @@ import { Clock3, MapPin, Navigation } from 'lucide-react';
 import { useAppData } from '@/lib/useAppData';
 import { summarizeReturnRoute, summarizeWorkClock } from '@/lib/dashboardSummary';
 import { loadWorkSchedule, useStore } from '@/lib/store';
-import BadgesWidget from './BadgesWidget';
 import CalendarView from './CalendarView';
 import CharacterCard from './CharacterCard';
 import CommuteButton from './CommuteButton';
@@ -67,7 +66,6 @@ export default function DashBoard() {
         </section>
 
         <div className="sm:col-span-2"><CalendarView records={records} /></div>
-        <BadgesWidget records={records} />
       </div>
     </main>
   </div>;
