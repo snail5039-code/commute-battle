@@ -71,7 +71,17 @@ export function safeRouteGuideInput(input: RouteGuideInput): RouteGuideAiInput {
   };
 }
 
+export const AI_ASSISTANT_HISTORY_LIMIT = 3;
+
 export function redactAssistantInput(input: AssistantInput): AssistantInput {
   const question = redactSensitiveText(input.question, 300);
-  return { question, context: { ...input.context, weather: input.context.weather ? compactText(input.context.weather, 100) : undefined } };
+  const history = input.history?.slice(-AI_ASSISTANT_HISTORY_LIMIT).map((turn) => ({
+    question: redactSensitiveText(turn.question, 300),
+    answer: redactSensitiveText(turn.answer, 250),
+  }));
+  return {
+    question,
+    context: { ...input.context, weather: input.context.weather ? compactText(input.context.weather, 100) : undefined },
+    ...(history?.length ? { history } : {}),
+  };
 }

@@ -69,9 +69,15 @@ export interface StatsCommentInput {
   monthLabel: string;
 }
 
+export interface AssistantHistoryTurn {
+  question: string;
+  answer: string;
+}
+
 export interface AssistantInput {
   question: string;
   context: { averageMinutes: number | null; variabilityMinutes: number | null; lateRate: number | null; weather?: string; routeMinutes?: number | null };
+  history?: AssistantHistoryTurn[];
 }
 export type AiEvidenceKind = 'realtime' | 'record' | 'estimate';
 export interface AiEvidence { label: string; kind: AiEvidenceKind; checkedAt?: string; values?: string[]; fallback?: boolean; source?: string }

@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Bot, LoaderCircle, Navigation, Plus, RefreshCcw, Send, ShieldCheck, UserRound } from 'lucide-react';
 import { requestAssistant } from '@/lib/aiClient';
+import { AI_ASSISTANT_HISTORY_LIMIT } from '@/lib/aiPayload';
 import type { AiEvidence, AssistantAnswer } from '@/lib/aiTypes';
 import { getWorkdaySchedule, loadWorkSchedule, useStore } from '@/lib/store';
 import { computePeriodStats } from '@/lib/stats';
@@ -163,7 +164,8 @@ export default function AssistantPanel({ user, records }: { user: User; records:
         return;
       }
       const aiQuestion = `${question}\n\n답변 범위: 출퇴근 생존일지 사이트 사용법, 출퇴근 기록, 출발 시간, 지도 경로, 이동수단 선택, 통계, 배지, 펫, 설정 안에서만 답하세요. 보안 정보나 민감 정보는 답하지 마세요. 목적지·도착 시간·우선순위가 부족하면 결론을 지어내지 말고 필요한 정보를 자연스럽게 되물어보세요.`;
-      const result = await requestAssistant({ question: aiQuestion, context: { averageMinutes: stats.avgCommuteDuration, variabilityMinutes: stats.weekly.variabilityMinutes, lateRate: stats.lateRate } }).enhancement;
+      const history = turns.slice(-AI_ASSISTANT_HISTORY_LIMIT).map((turn) => ({ question: turn.question, answer: turn.answer.text }));
+      const result = await requestAssistant({ question: aiQuestion, context: { averageMinutes: stats.avgCommuteDuration, variabilityMinutes: stats.weekly.variabilityMinutes, lateRate: stats.lateRate }, ...(history.length ? { history } : {}) }).enhancement;
       const failed = result.fallback === true;
       const answer = failed ? base : {
         text: result.conclusion || result.text || base.text,
