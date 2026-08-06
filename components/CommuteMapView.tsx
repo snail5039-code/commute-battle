@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, Bookmark, Bus, ChevronDown, ChevronUp, Clock3, Crosshair, Footprints, MapPin, Navigation, Sparkles, TrainFront, X } from 'lucide-react';
+import { AlertCircle, Bookmark, Bus, ChevronDown, ChevronUp, Clock3, Crosshair, Footprints, LocateFixed, MapPin, Navigation, Sparkles, TrainFront, X } from 'lucide-react';
 import { CommuteRecord, User } from '@/lib/types';
 import { haversineDistance, LatLng } from '@/lib/geo';
 import { geocodeAddress, loadKakaoMapSdk } from '@/lib/kakaoMap';
@@ -585,6 +585,14 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
     userCenteredRef.current = true;
     refreshLocationRef.current?.();
   };
+  const goToCurrentLocation = () => {
+    const point = currentLocationRef.current;
+    const map = mapRef.current;
+    if (!point || !map) return;
+    userCenteredRef.current = true;
+    map.setLevel(CURRENT_LOCATION_LEVEL);
+    map.panTo(new window.kakao.maps.LatLng(point.lat, point.lng));
+  };
   const changeMode = (nextMode: TravelMode) => {
     if (nextMode === mode) return;
     requestIdRef.current += 1;
@@ -714,7 +722,10 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
         <div className="relative h-[45dvh] min-h-64 shrink-0 md:h-auto md:min-h-0 md:flex-1">
           <div ref={containerRef} data-map-interactive className="absolute inset-0 touch-none" />
           <div className="absolute left-3 top-3 z-20 rounded-lg bg-white/90 px-2 py-1 text-[10px] text-neutral-500 shadow"><MapPin className="mr-1 inline" size={11} />파랑 현재 · 검정 출발 · 빨강 도착</div>
-          <button type="button" onClick={recenter} disabled={locationStatus === 'locating'} aria-busy={locationStatus === 'locating'} className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 rounded-full bg-white px-3 py-2 text-xs font-semibold text-neutral-700 shadow-lg disabled:cursor-wait disabled:opacity-70"><Crosshair className={locationStatus === 'locating' ? 'animate-pulse' : ''} size={15} />{locationStatus === 'locating' ? '위치 확인 중…' : hasCurrentLocation ? '내 위치 새로고침' : '내 위치 찾기'}</button>
+          <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2">
+            <button type="button" onClick={goToCurrentLocation} disabled={!hasCurrentLocation} aria-label="내 위치로 이동" className="flex items-center justify-center rounded-full bg-white p-2.5 text-neutral-700 shadow-lg disabled:cursor-not-allowed disabled:opacity-40"><LocateFixed size={16} /></button>
+            <button type="button" onClick={recenter} disabled={locationStatus === 'locating'} aria-busy={locationStatus === 'locating'} className="flex items-center gap-1.5 rounded-full bg-white px-3 py-2 text-xs font-semibold text-neutral-700 shadow-lg disabled:cursor-wait disabled:opacity-70"><Crosshair className={locationStatus === 'locating' ? 'animate-pulse' : ''} size={15} />{locationStatus === 'locating' ? '위치 확인 중…' : hasCurrentLocation ? '내 위치 새로고침' : '내 위치 찾기'}</button>
+          </div>
         </div>
         {panel}
       </div>
