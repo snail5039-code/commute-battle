@@ -34,7 +34,7 @@ interface Segment {
   distance: number;
   sectionTime: number;
   points: Point[];
-  geometrySource?: 'odsay' | 'tmap-pedestrian' | 'endpoint-connector' | 'unavailable';
+  geometrySource?: 'odsay' | 'tmap-pedestrian' | 'tmap-road-reference' | 'endpoint-connector' | 'unavailable';
   estimatedGeometry?: boolean;
 }
 interface OdsaySubPath {
@@ -220,6 +220,39 @@ async function walking(start: Point, end: Point, key: string): Promise<Segment> 
   return { trafficType: 3, label: '도보', distance: Number(props?.totalDistance || direct), sectionTime: Math.max(1, Math.round(Number(props?.totalTime || 0) / 60)), points, geometrySource: 'tmap-pedestrian', estimatedGeometry: false };
 }
 
+async function roadReference(start: Point, end: Point, key: string): Promise<Point[]> {
+  const response = await fetch('https://apis.openapi.sk.com/tmap/routes?version=1', {
+    method: 'POST',
+    headers: { appKey: key, Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ startX: String(start.lng), startY: String(start.lat), endX: String(end.lng), endY: String(end.lat), reqCoordType: 'WGS84GEO', resCoordType: 'WGS84GEO', searchOption: '0' }),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw providerFailure('tmap', response, data);
+  const points = compact((data?.features || []).flatMap((feature: { geometry?: { type?: string; coordinates?: unknown[] } }) => {
+    if (feature.geometry?.type !== 'LineString') return [];
+    return (feature.geometry.coordinates || []).map((coordinate) => Array.isArray(coordinate) ? { lng: Number(coordinate[0]), lat: Number(coordinate[1]) } : null).filter((point): point is Point => !!point && validPoint(point));
+  }));
+  if (points.length < 2) throw new ProviderError('tmap', 'ROUTE_NOT_FOUND', 404, '도로 참고선 좌표를 받지 못했습니다.');
+  return points;
+}
+
+async function enrichRoadReferenceSegments(segments: Segment[], key?: string): Promise<Segment[]> {
+  return Promise.all(segments.map(async (segment) => {
+    if (!key || ![2, 5, 6].includes(segment.providerTrafficType || segment.trafficType)) return segment;
+    if (segment.points.length > 2 && !segment.estimatedGeometry) return segment;
+    const from = segment.points[0];
+    const to = segment.points.at(-1);
+    if (!from || !to) return segment;
+    try {
+      const points = await roadReference(from, to, key);
+      return { ...segment, points, geometrySource: 'tmap-road-reference', estimatedGeometry: true };
+    } catch (error) {
+      console.warn('TMAP road reference unavailable:', error);
+      return segment;
+    }
+  }));
+}
+
 async function enrichWalkingSegments(segments: Segment[], key?: string): Promise<Segment[]> {
   return Promise.all(segments.map(async (segment) => {
     if (segment.trafficType !== 3) return segment;
@@ -344,6 +377,7 @@ async function buildTransitCandidate(path: OdsayPath, start: Point, end: Point, 
     segments = [...access, ...main, ...egress];
   } else segments = await pathSegments(path, odsayKey);
   segments = connectSegmentPoints(start, end, fillMissingSegmentPoints(start, end, segments));
+  segments = await enrichRoadReferenceSegments(segments, tmapKey);
   segments = await enrichWalkingSegments(segments, tmapKey);
   let transitIndex = 0;
   segments.forEach((segment) => { if (segment.trafficType !== 3) segment.transferIndex = transitIndex++; });

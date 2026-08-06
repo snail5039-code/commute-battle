@@ -1,4 +1,5 @@
 import type { User, WorkSchedule } from './types';
+import { getFavoriteRoutes } from './routePreferences';
 import { getWorkdaySchedule, workTimeToMinutes } from './store';
 
 const ROUTE_HISTORY_KEY = 'commuteRouteLearning:v1';
@@ -11,6 +12,7 @@ interface StoredRouteChoice {
   totalWalk: number;
   transferCount: number;
   selectedAt: number;
+  source?: 'recent' | 'favorite';
 }
 
 export interface WorkClockSummary {
@@ -89,10 +91,16 @@ function loadRecentReturnRoute(now = Date.now()): StoredRouteChoice | null {
         && Number.isFinite(route.totalTime) && Number.isFinite(route.totalWalk)
         && Number.isFinite(route.transferCount) && Number.isFinite(route.selectedAt)
         && route.selectedAt! >= now - MAX_ROUTE_AGE_MS;
-    }).sort((left, right) => right.selectedAt - left.selectedAt)[0] ?? null;
+    }).sort((left, right) => right.selectedAt - left.selectedAt).map((route) => ({ ...route, source: 'recent' as const }))[0] ?? null;
   } catch { return null; }
 }
 
 export function summarizeReturnRoute(user: User): ReturnRouteSummary {
-  return { origin: compactAddress(user.work_address), destination: compactAddress(user.home_address), route: loadRecentReturnRoute() };
+  const recent = loadRecentReturnRoute();
+  const favorite = getFavoriteRoutes('return')[0];
+  return {
+    origin: compactAddress(user.work_address),
+    destination: compactAddress(user.home_address),
+    route: recent ?? (favorite ? { ...favorite, direction: 'return', selectedAt: favorite.savedAt, source: 'favorite' } : null),
+  };
 }

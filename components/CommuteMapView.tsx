@@ -326,7 +326,8 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
       const path = segment.points.map((point) => { const value = new window.kakao.maps.LatLng(point.lat, point.lng); bounds.extend(value); return value; });
       const color = selectedMode === 'walk' ? '#334155' : roadReference ? '#f97316' : (SEGMENT_COLORS[segment.trafficType] ?? '#64748b');
       const isGuidanceLine = data.estimated || segment.estimatedGeometry || isUnavailableWalkingGeometry(segment) || (selectedMode === 'transit' && segment.trafficType !== 3 && !hasActualTransitGeometry(segment));
-      const line = new window.kakao.maps.Polyline({ path, strokeWeight: roadReference ? 5 : segment.trafficType === 3 ? 4 : 7, strokeColor: color, strokeOpacity: isGuidanceLine ? 0.65 : 0.9, strokeStyle: roadReference || isGuidanceLine ? 'shortdash' : 'solid' });
+      const line = new window.kakao.maps.Polyline({ path, strokeWeight: roadReference ? 6 : segment.trafficType === 3 ? 5 : 8, strokeColor: color, strokeOpacity: isGuidanceLine ? 0.82 : 0.94, strokeStyle: roadReference || isGuidanceLine ? 'shortdash' : 'solid' });
+      (line as { setZIndex?: (zIndex: number) => void }).setZIndex?.(12);
       line.setMap(map);
       routeOverlaysRef.current.push(line);
     });
@@ -659,6 +660,8 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   const hasRoadReference = mode === 'transit' && Boolean(route?.segments.some(isRoadReference));
   const displayedWarnings = route?.intelligence?.warnings.filter((warning) => warning.kind !== 'geometry-unavailable') ?? [];
   const arrival = arrivalEstimate(route, routeDepartureAt);
+  const currentRouteSignature = route ? routeSignature(route.segments) : null;
+  const currentRouteFavorite = Boolean(currentRouteSignature && favorites.some((item) => item.signature === currentRouteSignature));
 
   const panel = (
     <aside className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(15,23,42,0.12)] md:h-full md:w-[360px] md:flex-none md:border-l md:border-neutral-200 md:pb-4 md:shadow-none">
@@ -666,7 +669,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
         {(['walk', 'transit'] as const).map((value) => <button key={value} onClick={() => changeMode(value)} aria-pressed={mode === value} className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold ${mode === value ? 'bg-neutral-900 text-white shadow-sm' : 'text-neutral-500'}`}>{value === 'walk' ? <Footprints size={13} /> : <Bus size={13} />}{value === 'walk' ? '도보' : '대중교통'}</button>)}
       </div>
       {mode === 'transit' && <div className="mb-3"><p className="mb-1 text-[10px] font-bold text-neutral-500">기본 경로 선호 · 이 기기에 저장</p><div className="grid grid-cols-3 gap-1 rounded-xl bg-neutral-100 p-1" aria-label="기본 경로 선호">{(['fastest', 'least-walking', 'fewest-transfers'] as const).map((preference) => <button key={preference} type="button" onClick={() => changeRoutePreference(preference)} aria-pressed={routePreference === preference} className={`min-h-10 min-w-0 rounded-lg px-1.5 py-2 text-center text-[10px] font-semibold leading-tight ${routePreference === preference ? 'bg-white text-blue-700 shadow-sm' : 'text-neutral-500'}`}><span className="block break-keep">{BADGE_LABEL[preference]}</span></button>)}</div></div>}
-      {mode === 'transit' && <RouteFavoritesPanel direction={direction} favorites={favorites} learningEnabled={learningEnabled} onToggleLearning={toggleLearning} onResetLearning={resetLearning} />}
+      {mode === 'transit' && <RouteFavoritesPanel direction={direction} favorites={favorites} learningEnabled={learningEnabled} currentFavorite={currentRouteFavorite} canSaveCurrent={Boolean(route && !loading)} onToggleCurrent={route ? () => toggleFavorite(route) : undefined} onToggleLearning={toggleLearning} onResetLearning={resetLearning} />}
       <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-neutral-100 p-1" aria-label="출발 기준">
         {(['current', 'saved'] as const).map((value) => <button key={value} type="button" onClick={() => changeStartBasis(value)} disabled={value === 'current' ? !hasCurrentLocation : !hasSavedStart} aria-pressed={startBasis === value} className={`rounded-lg px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${startBasis === value ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}>{value === 'current' ? '현재 위치에서' : '저장한 주소에서'}</button>)}
       </div>
