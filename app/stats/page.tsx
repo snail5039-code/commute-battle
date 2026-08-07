@@ -2,14 +2,17 @@
 
 import { useEffect, useMemo, useState } from 'react';
 /* eslint-disable react-hooks/exhaustive-deps -- version refreshes localStorage-backed exclusions */
-import { AlertTriangle, ChevronLeft, ChevronRight, Download, Info } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Download, Info, Share2 } from 'lucide-react';
 import TopBar from '@/components/TopBar';
 import StatsCharts from '@/components/StatsCharts';
+import WeeklyRecapCard from '@/components/WeeklyRecapCard';
 import { qualitySummary } from '@/lib/dataQuality';
 import { comparisonPercent, computePeriodStats, StatsPeriod } from '@/lib/stats';
+import { buildWeeklyRecapData } from '@/lib/weeklyRecapCard';
 import { useAppData } from '@/lib/useAppData';
 import { loadWorkSchedule, useStore } from '@/lib/store';
 import { loadExcludedRecordIds, RECORD_OVERRIDES_EVENT } from '@/lib/recordOverrides';
+import { PET_CATALOG, useSelectedPetId } from '@/lib/petCatalog';
 
 const PERIODS: { id: StatsPeriod; label: string }[] = [
   { id: 'week', label: '주' },
@@ -41,6 +44,8 @@ export default function StatsPage() {
   const [period, setPeriod] = useState<StatsPeriod>('month');
   const [offset, setOffset] = useState(0);
   const [version, setVersion] = useState(0);
+  const [showRecap, setShowRecap] = useState(false);
+  const petId = useSelectedPetId();
 
   useEffect(() => setSchedule(loadWorkSchedule(user?.id)), [setSchedule, user?.id]);
   useEffect(() => {
@@ -98,7 +103,10 @@ export default function StatsPage() {
               <strong className="min-w-32 text-center text-sm">{stats.range.label}</strong>
               <button aria-label="다음 기간" disabled={offset >= 0} onClick={() => setOffset((value) => value + 1)} className="rounded-lg border p-2 disabled:opacity-30"><ChevronRight size={16} /></button>
             </div>
-            <button onClick={exportCsv} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold"><Download size={15} />CSV 내보내기</button>
+            <div className="flex items-center gap-2">
+              {period === 'week' && <button onClick={() => setShowRecap(true)} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold"><Share2 size={15} />리캡 카드 공유</button>}
+              <button onClick={exportCsv} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold"><Download size={15} />CSV 내보내기</button>
+            </div>
           </div>
 
           <section className="rounded-2xl border border-blue-100 bg-blue-50 p-5 text-sm text-blue-950">{statsComment(stats)}</section>
@@ -126,6 +134,13 @@ export default function StatsPage() {
           </div>
 
           <StatsCharts points={stats.trend} weather={stats.weatherBreakdown} transport={stats.transportBreakdown} />
+
+          {showRecap && user && (
+            <WeeklyRecapCard
+              data={buildWeeklyRecapData(stats, PET_CATALOG[petId], user.character_stage, user.character_level)}
+              onClose={() => setShowRecap(false)}
+            />
+          )}
         </>}
       </div>
     </main>
