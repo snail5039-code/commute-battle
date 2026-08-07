@@ -16,6 +16,7 @@ import { fetchWeather, recommendDeparture, WEATHER_FALLBACK, WeatherResponse } f
 import { getWorkdaySchedule, loadWorkSchedule, useStore } from '@/lib/store';
 import { useSelectedPetId } from '@/lib/petCatalog';
 import type { LevelProgress } from '@/lib/characterStages';
+import { localDateKey } from '@/lib/date';
 
 interface CommuteButtonProps {
   user: User;
@@ -74,7 +75,7 @@ export default function CommuteButton({
   const setStoredSchedule = useStore((state) => state.setWorkSchedule);
   const petId = useSelectedPetId();
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDateKey(new Date());
   const activeRecord = records.find(
     (r) =>
       r.date === today &&

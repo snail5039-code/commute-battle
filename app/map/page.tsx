@@ -6,6 +6,7 @@ import { useAppData } from '@/lib/useAppData';
 import { recordArrival } from '@/lib/commuteArrival';
 import CommuteMapView from '@/components/CommuteMapView';
 import TopBar from '@/components/TopBar';
+import { localDateKey } from '@/lib/date';
 
 export default function MapPage() {
   const router = useRouter();
@@ -13,7 +14,7 @@ export default function MapPage() {
 
   if (!user) return null;
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDateKey(new Date());
   const activeRecord = records.find(
     (r) =>
       r.date === today &&

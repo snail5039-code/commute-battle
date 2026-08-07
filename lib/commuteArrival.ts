@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { isCommuteOnTime, isReturnOnTime } from './onTime';
 import { applyExpReward, type LevelProgress } from './characterStages';
 import { CommuteRecord, User } from './types';
+import { localDateKey } from './date';
 
 export async function recordArrival(
   user: User,
@@ -55,7 +56,7 @@ export async function recordInstantTrip(
   type: 'commute' | 'return'
 ): Promise<LevelProgress> {
   const now = new Date();
-  const today = now.toISOString().split('T')[0];
+  const today = localDateKey(now);
   const expGained = 15;
 
   const { error } = await supabase.from('commute_records').insert({

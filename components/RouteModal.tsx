@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { localDateKey } from '@/lib/date';
 import { User, RouteGuideResponse } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
 import { DepartureRecommendation as Recommendation } from '@/lib/weather';
@@ -65,7 +66,7 @@ export default function RouteModal({
     setLoading(true);
 
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = localDateKey(new Date());
 
       const { error } = await supabase.from('commute_records').insert({
         user_id: user.id,

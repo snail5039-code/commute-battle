@@ -1,4 +1,5 @@
 import { CommuteRecord } from './types';
+import { localDateKey } from './date';
 
 export type PetTriggerKey =
   | 'praise_commute'
@@ -34,7 +35,7 @@ export function detectPetTrigger(
   const day = now.getDay();
   if (day === 0 || day === 6) return null;
 
-  const today = now.toISOString().split('T')[0];
+  const today = localDateKey(now);
   const nowMin = now.getHours() * 60 + now.getMinutes();
 
   const commuteToday = records.find(
@@ -74,13 +75,13 @@ export function detectPetTrigger(
 
 export function hasSpokenToday(trigger: PetTriggerKey, now: Date): boolean {
   if (typeof window === 'undefined') return true;
-  const today = now.toISOString().split('T')[0];
+  const today = localDateKey(now);
   return localStorage.getItem(`pet_spoken_${today}_${trigger}`) === 'true';
 }
 
 export function markSpokenToday(trigger: PetTriggerKey, now: Date): void {
   if (typeof window === 'undefined') return;
-  const today = now.toISOString().split('T')[0];
+  const today = localDateKey(now);
   localStorage.setItem(`pet_spoken_${today}_${trigger}`, 'true');
 }
 
