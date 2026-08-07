@@ -42,7 +42,10 @@ export async function recordArrival(
       character_level: progress.level,
       character_exp: progress.exp,
       character_stage: progress.stage,
-      total_commute_arrivals: (user.total_commute_arrivals || 0) + 1,
+      total_commute_arrivals:
+        activeRecord.type === 'commute'
+          ? (user.total_commute_arrivals || 0) + 1
+          : user.total_commute_arrivals,
     })
     .eq('id', user.id);
 
