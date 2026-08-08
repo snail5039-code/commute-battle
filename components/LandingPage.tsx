@@ -16,7 +16,7 @@ const features = [
   { icon: MapPin, title: '출퇴근 기록', text: '출발과 도착 시간을 기록하고 오늘의 이동을 확인해요.' },
   { icon: Bus, title: '이동 경로', text: '도보와 대중교통 경로를 한 화면에서 비교해요.' },
   { icon: Award, title: '펫과 배지', text: '꾸준히 기록하며 펫을 키우고 새로운 배지를 모아요.' },
-  { icon: BarChart3, title: '캘린더 통계', text: '출근, 퇴근, 지각과 휴가 기록을 기간별로 살펴봐요.' },
+  { icon: BarChart3, title: '캘린더 통계', text: '출근, 퇴근, 지각과 휴가 기록을 기간별로 살펴보고, 주간 리캡은 이미지로 저장하거나 공유해요.' },
   { icon: Bot, title: '기록 비서', text: '내 기록을 바탕으로 칭찬과 개선점을 알려줘요.' },
   { icon: MessageCircle, title: '커뮤니티', text: '공지와 의견을 확인하고 출퇴근 이야기를 나눠요.' },
 ];
