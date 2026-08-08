@@ -7,6 +7,9 @@ export default function PwaRegistration() {
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
+    // 개발 모드에서 SW를 등록하면 캐시가 next dev의 재컴파일보다 오래 살아남아,
+    // 코드를 고쳐도 브라우저가 예전 번들을 계속 보여주는 문제가 생긴다.
+    if (process.env.NODE_ENV !== 'production') return;
     let refreshing = false;
     const handleControllerChange = () => {
       if (refreshing) return;
