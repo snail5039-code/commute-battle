@@ -373,9 +373,11 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
         const progressSegments = activeRoute.estimated ? [] : activeRoute.segments;
         const nextProgress = calculateDetailedRouteProgress(accepted, progressSegments, activeRoute.summary.totalTime, endRef.current ?? undefined);
         setProgress(nextProgress);
-        if (nextProgress?.arrivalSuggested) {
-          setArrivalSuggested(true);
-          if (etaNotificationsRef.current) showArrivalSuggestionOnce(`${activeRoute.id || 'route'}:arrival`);
+        // arrivalSuggested는 매 GPS 갱신마다 새로 계산되는 순간값인데, 예전엔 true로만 반영하고
+        // false로는 절대 되돌리지 않아서 GPS가 한 번만 튀어도 배너가 이동이 끝날 때까지 붙어있었다.
+        setArrivalSuggested(Boolean(nextProgress?.arrivalSuggested));
+        if (nextProgress?.arrivalSuggested && etaNotificationsRef.current) {
+          showArrivalSuggestionOnce(`${activeRoute.id || 'route'}:arrival`);
         }
         const offRoute = Boolean(nextProgress && nextProgress.source === 'route-geometry' && nextProgress.distanceFromRoute > OFF_ROUTE_THRESHOLD_M);
         if (offRoute) {
