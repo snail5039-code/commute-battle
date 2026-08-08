@@ -6,7 +6,7 @@ import { CommuteRecord, User } from '@/lib/types';
 import { haversineDistance, LatLng } from '@/lib/geo';
 import { geocodeAddress, loadKakaoMapSdk } from '@/lib/kakaoMap';
 import { generateRouteComment, RouteComment } from '@/lib/gemini';
-import { resetRouteNotifications, showArrivalSuggestionOnce, showRouteNotificationOnce } from '@/lib/notifications';
+import { loadNotificationSettings, resetRouteNotifications, showArrivalSuggestionOnce, showRouteNotificationOnce } from '@/lib/notifications';
 import { type RouteIntelligence } from '@/lib/routeIntelligence';
 import { acceptLocationSample, calculateDetailedRouteProgress, type AcceptedLocation, type DetailedRouteProgress } from '@/lib/routeProgress';
 import { getFavoriteRoutes, getRoutePreference, saveRoutePreference, toggleFavoriteRoute, type FavoriteRoute, type RoutePreference } from '@/lib/routePreferences';
@@ -197,6 +197,8 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   const endRef = useRef<LatLng | null>(null);
   const lastRouteOriginRef = useRef<LatLng | null>(null);
   const lastRouteAtRef = useRef(0);
+  // 설정의 '도착 예정 알림' 토글을 반영 — 켜지지 않았다면 도착/승하차 접근 알림을 보내지 않는다.
+  const etaNotificationsRef = useRef(loadNotificationSettings().categories.eta);
   const requestIdRef = useRef(0);
   const lastRequestKeyRef = useRef('');
   const startBasisRef = useRef<StartBasis>('current');
@@ -373,7 +375,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
         setProgress(nextProgress);
         if (nextProgress?.arrivalSuggested) {
           setArrivalSuggested(true);
-          showArrivalSuggestionOnce(`${activeRoute.id || 'route'}:arrival`);
+          if (etaNotificationsRef.current) showArrivalSuggestionOnce(`${activeRoute.id || 'route'}:arrival`);
         }
         const offRoute = Boolean(nextProgress && nextProgress.source === 'route-geometry' && nextProgress.distanceFromRoute > OFF_ROUTE_THRESHOLD_M);
         if (offRoute) {
@@ -397,11 +399,11 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
         }
         const upcoming = activeRoute.segments.find((segment) => segment.trafficType !== 3 && segment.points[0] && haversineDistance(point, segment.points[0]) <= APPROACH_NOTICE_M);
         const finalTransit = activeRoute.segments.findLast((segment) => segment.trafficType !== 3);
-        if (upcoming) {
+        if (upcoming && etaNotificationsRef.current) {
           const metres = Math.round(haversineDistance(point, upcoming.points[0]));
           showRouteNotificationOnce(`${activeRoute.id}:board:${upcoming.startName || upcoming.label}`, '승차 지점에 접근 중', `${upcoming.startName || upcoming.label}까지 확인된 거리 약 ${metres}m입니다.`);
         }
-        if (finalTransit?.points.at(-1)) {
+        if (finalTransit?.points.at(-1) && etaNotificationsRef.current) {
           const metres = Math.round(haversineDistance(point, finalTransit.points.at(-1)!));
           if (metres <= APPROACH_NOTICE_M) showRouteNotificationOnce(`${activeRoute.id}:alight:${finalTransit.endName || finalTransit.label}`, '하차 지점에 접근 중', `${finalTransit.endName || '하차 지점'}까지 확인된 거리 약 ${metres}m입니다. 하차 후 목적지 경로를 확인하세요.`);
         }
