@@ -10,8 +10,11 @@ function redactSensitiveText(value: unknown, max: number) {
     .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '[이메일 삭제]')
     .replace(/\b(?:01[016789][ -]?\d{3,4}[ -]?\d{4})\b/g, '[전화번호 삭제]')
     .replace(/\b-?\d{1,3}\.\d{4,}\s*[,/]\s*-?\d{1,3}\.\d{4,}\b/g, '[정밀 좌표 삭제]')
-    .replace(/\b(?:AIza|sk-)[A-Za-z0-9_-]{12,}\b/g, '[비밀값 삭제]')
-    .replace(/(?:[가-힣A-Za-z0-9]+(?:로|길|대로)\s*\d+(?:-\d+)?|[가-힣]+(?:시|도)\s+[가-힣]+(?:구|군|시)\s+[^,]{1,50})/g, '[주소 삭제]');
+    .replace(/\b(?:AIza|sk-)[A-Za-z0-9_-]{12,}\b/gi, '[비밀값 삭제]')
+    .replace(
+      /(?:[가-힣A-Za-z0-9]+(?:로|길|대로)\s*\d+(?:-\d+)?|[가-힣]+(?:시|도)\s+[가-힣]+(?:구|군|시)\s+[^,]{1,50}|[가-힣]{2,10}(?:동|읍|면|리)\s*\d{1,5}(?:-\d{1,5})?(?:번지)?|\d{1,5}\s+[A-Za-z][A-Za-z-]*-(?:ro|gil|daero)\b|[A-Za-z][A-Za-z-]*-(?:gu|si|dong|gun)\b)/g,
+      '[주소 삭제]',
+    );
 }
 
 function sameSegment(left: RouteCommentSegment, right: RouteCommentSegment) {
@@ -81,7 +84,15 @@ export function redactAssistantInput(input: AssistantInput): AssistantInput {
   }));
   return {
     question,
-    context: { ...input.context, weather: input.context.weather ? compactText(input.context.weather, 100) : undefined },
+    // context를 통째로 펼치면 클라이언트가 (또는 앞으로 바뀔 코드가) 여기에 무엇을 넣어도
+    // 그대로 프롬프트에 실려 나간다. 알려진 필드만 명시적으로 골라서 보낸다.
+    context: {
+      averageMinutes: input.context.averageMinutes,
+      variabilityMinutes: input.context.variabilityMinutes,
+      lateRate: input.context.lateRate,
+      routeMinutes: input.context.routeMinutes,
+      weather: input.context.weather ? compactText(input.context.weather, 100) : undefined,
+    },
     ...(history?.length ? { history } : {}),
   };
 }
