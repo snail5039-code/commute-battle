@@ -61,7 +61,7 @@ export default function CalendarView({ records }: { records: CommuteRecord[] }) 
           </div>
         </div>
         <aside
-          className="border-t bg-slate-50 p-5 lg:border-l lg:border-t-0 lg:overflow-y-auto"
+          className="overflow-y-auto border-t bg-slate-50 p-5 lg:border-l lg:border-t-0"
           style={calendarHeight ? { maxHeight: `${calendarHeight}px` } : undefined}
         >
           <div className="flex items-center gap-2">
