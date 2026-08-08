@@ -485,9 +485,11 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
           setMapReady(true);
           setLoading(false);
           startWatching();
+          // 첫 GPS 신호가 부정확해 거부됐을 때도 저장된 주소로 되돌아가는 건 맞지만, 여기서
+          // startRef만 직접 바꾸고 끝내면 "출발 기준" 표시가 여전히 '현재 위치'로 남아
+          // 실제로 쓰인 기준과 화면이 어긋난다. applyFallback으로 상태를 함께 맞춘다.
           if (!initialPositionSettled && addressStart && endRef.current) {
-            startRef.current = addressStart;
-            setRoutePoints({ start: addressStart, end: endRef.current });
+            applyFallback('GPS 신호가 정확하지 않아 등록된 출발 주소를 사용합니다.');
           }
         } else {
           applyFallback(locationErrorMessage(result.error));
