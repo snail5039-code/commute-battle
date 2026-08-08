@@ -11,6 +11,7 @@ import {
   getWorkdaySchedule, loadLocalSettings, saveLocalSettings, type LocalSettings,
 } from '@/lib/store';
 import type { WorkSchedule, WorkdayMode } from '@/lib/types';
+import { mondayOfWeek } from '@/lib/date';
 import LogoutButton from './LogoutButton';
 
 export type SettingsSectionId = 'work' | 'route' | 'notifications' | 'pet' | 'ai-privacy' | 'account';
@@ -26,8 +27,15 @@ export const SETTINGS_SECTIONS: Array<{ id: SettingsSectionId; label: string; ic
 
 const weekdays = [
   { day: 1, label: '월' }, { day: 2, label: '화' }, { day: 3, label: '수' },
-  { day: 4, label: '목' }, { day: 5, label: '금' },
+  { day: 4, label: '목' }, { day: 5, label: '금' }, { day: 6, label: '토' }, { day: 0, label: '일' },
 ];
+// weekdays의 day(0=일~6=토) 기준 이번 주 날짜를 "M.D"로 보여주기 위한 오프셋(월요일=0)
+function weekdayDateLabel(day: number, monday: Date) {
+  const offset = day === 0 ? 6 : day - 1;
+  const date = new Date(monday);
+  date.setDate(monday.getDate() + offset);
+  return `${date.getMonth() + 1}.${date.getDate()}`;
+}
 const modeLabel: Record<WorkdayMode, string> = { office: '출근', remote: '재택', off: '휴무' };
 const petLabel: Record<PetId, string> = { cat: '고양이', dog: '강아지', rabbit: '토끼', bird: '새', turtle: '거북이' };
 
@@ -124,9 +132,13 @@ export default function SettingsSections(props: SettingsSectionsProps) {
     setActive(id);
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${id}`);
   };
+  const monday = mondayOfWeek(new Date());
+  // office를 override 삭제(undefined)로 처리하면 기본값이 office인 평일에서만 맞는 지름길이었다.
+  // 주말은 기본값이 off라서 그 지름길을 쓰면 "출근" 선택이 다시 off로 되돌아가 버리므로
+  // 항상 명시적으로 저장한다.
   const setMode = (day: number, mode: WorkdayMode) => props.onScheduleChange({
     ...props.schedule,
-    overrides: { ...props.schedule.overrides, [day]: mode === 'office' ? undefined : { mode } },
+    overrides: { ...props.schedule.overrides, [day]: { mode } },
   });
   const updateLocalSettings = (next: LocalSettings) => {
     setLocalSettings(saveLocalSettings(props.userId, next));
@@ -185,7 +197,7 @@ export default function SettingsSections(props: SettingsSectionsProps) {
           <label className="text-xs font-bold">출근 시각<input type="time" value={props.schedule.startTime} onChange={(event) => props.onScheduleChange({ ...props.schedule, startTime: event.target.value })} className="settings-control mt-2 w-full rounded-xl border border-slate-200 px-3"/></label>
           <label className="text-xs font-bold">퇴근 시각<input type="time" value={props.schedule.endTime} onChange={(event) => props.onScheduleChange({ ...props.schedule, endTime: event.target.value })} className="settings-control mt-2 w-full rounded-xl border border-slate-200 px-3"/></label>
         </div>
-        <div className="mt-5 space-y-2">{weekdays.map(({ day, label }) => { const mode = getWorkdaySchedule(props.schedule, new Date(2024, 0, day)).mode; return <div key={day} className="flex flex-col gap-2 rounded-xl bg-slate-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"><span className="text-sm font-bold">{label}요일</span><div className="grid grid-cols-3 gap-1" role="group" aria-label={`${label}요일 근무 형태`}>{(['office', 'remote', 'off'] as WorkdayMode[]).map((item) => <button key={item} type="button" aria-pressed={mode === item} onClick={() => setMode(day, item)} className={`min-h-10 rounded-lg px-3 text-xs font-bold ${mode === item ? 'bg-blue-600 text-white' : 'bg-white text-slate-600'}`}>{modeLabel[item]}</button>)}</div></div>; })}</div>
+        <div className="mt-5 space-y-2">{weekdays.map(({ day, label }) => { const mode = getWorkdaySchedule(props.schedule, new Date(2024, 0, day)).mode; return <div key={day} className="flex flex-col gap-2 rounded-xl bg-slate-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"><span className="text-sm font-bold">{label}요일 <span className="font-normal text-slate-400">({weekdayDateLabel(day, monday)})</span></span><div className="grid grid-cols-3 gap-1" role="group" aria-label={`${label}요일 근무 형태`}>{(['office', 'remote', 'off'] as WorkdayMode[]).map((item) => <button key={item} type="button" aria-pressed={mode === item} onClick={() => setMode(day, item)} className={`min-h-10 rounded-lg px-3 text-xs font-bold ${mode === item ? 'bg-blue-600 text-white' : 'bg-white text-slate-600'}`}>{modeLabel[item]}</button>)}</div></div>; })}</div>
         <div className="mt-6 flex flex-wrap items-center gap-3"><button type="button" onClick={props.onSave} disabled={props.saving} className="min-h-11 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white disabled:opacity-60">{props.saving ? '저장 중…' : '근무 설정 저장'}</button><p role="status" aria-live="polite" className="text-xs text-slate-600">{props.status}</p></div>
       </section>}
 
