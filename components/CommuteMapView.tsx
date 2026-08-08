@@ -523,6 +523,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
     if (requestKey === lastRequestKeyRef.current) return;
     lastRequestKeyRef.current = requestKey;
     const requestId = ++requestIdRef.current;
+    const isReroute = rerouteInFlightRef.current;
     lastRouteOriginRef.current = start;
     lastRouteAtRef.current = Date.now();
     setLoading(true);
@@ -547,6 +548,10 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
       const selected = preferred ? { ...preferred, candidates: data.candidates } : data;
       setRoute(selected);
       routeRef.current = selected;
+      // 사용자가 후보 카드를 직접 골랐을 때만 학습 기록이 쌓여서, 추천된 기본 경로를 그냥
+      // 받아들이는 보통의 경우엔 학습이 전혀 진행되지 않았다. 재탐색(오프루트 자동 재탐색)은
+      // 같은 이동의 연장이라 별도 선택으로 기록하지 않는다.
+      if (!isReroute) recordRouteChoice(direction, toLearnableRoute(selected), normalizeWeather(activeRecord.weather_condition));
       setProgress(null);
       setArrivalSuggested(false);
       setRerouting(false);
