@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 출퇴근 생존일지 (Commute Battle)
 
-## Getting Started
+매일의 출퇴근을 기록하고, AI가 경로와 코멘트를 제안하며, 캐릭터와 배지로 습관을 게임처럼 이어가는 웹 서비스입니다.
 
-First, run the development server:
+- **배포 주소**: https://commute-battle.vercel.app
+- **제출 문서**: [`../미니프로젝트3_출퇴근전쟁봇.md`](../미니프로젝트3_출퇴근전쟁봇.md) (기능·데이터 설계·AI 활용 전체 설명)
+
+## 기술 스택
+
+| 구분 | 사용 기술 |
+|---|---|
+| 프레임워크 | Next.js 16 (App Router) |
+| 배포 | Vercel |
+| 데이터베이스 · 인증 | Supabase (PostgreSQL, Auth) |
+| AI | Google Gemini API |
+| 스타일 | TailwindCSS 4 |
+
+## 로컬 실행
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+http://localhost:3000 에서 확인합니다. Supabase·Gemini 키는 `.env.local`에 설정합니다.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| 명령 | 설명 |
+|---|---|
+| `npm run dev` | 개발 서버 실행 |
+| `npm run build` | 프로덕션 빌드 |
+| `npm run lint` | ESLint 검사 |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 만들면서 막혔던 문제와 해결 방법
 
-## Learn More
+### 1. Gemini 응답이 항상 문장 중간에서 끊김
+- **문제**: 경로 코멘트, 캐릭터 메시지, 어시스턴트 답변 가리지 않고 JSON이 잘려서 파싱에 실패했습니다.
+- **원인**: 프롬프트를 줄이고 `maxOutputTokens`를 올려도 계속 잘렸는데, 실제로 뜯어보니 모델이 눈에 보이지 않는 "생각(thinking)" 토큰에 예산을 거의 다 써버리고 있었습니다 — 500토큰 중 476개가 생각에 쓰이고 실제 답변엔 10개도 안 남는 경우가 있었습니다.
+- **해결**: 단순 구조화 출력이라 복잡한 추론이 필요 없다고 판단해 `thinkingConfig.thinkingBudget: 0`으로 생각 토큰을 비활성화하고 `maxOutputTokens`를 1500으로 넉넉히 올렸습니다. 서버에서 JSON 파싱 전에 길이(4,000자)·필드 타입 검증도 추가해서, 혹시 다시 잘려도 화면이 깨지지 않고 폴백 응답을 보여주도록 했습니다.
 
-To learn more about Next.js, take a look at the following resources:
+### 2. 자정~오전 9시 사이 기록이 하루 전 날짜로 저장됨
+- **문제**: 새벽에 출근을 기록하면 통계·캘린더에서 전날 기록으로 잡히는 근본적인 버그가 있었습니다.
+- **원인**: 여러 파일이 `toISOString().split('T')[0]`으로 "오늘"을 계산했는데, 이건 UTC 기준이라 한국 시간(KST, UTC+9)으로는 자정부터 오전 9시까지 날짜가 하루 어긋났습니다. 실제 출근이 몰리는 시간대라 영향이 컸습니다.
+- **해결**: 로컬 날짜를 계산하는 `localDateKey()` 함수 하나로 통일해 모든 날짜 계산을 거기로 몰았습니다.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 3. 퀘스트 보상을 시크릿 창이나 다른 기기에서 중복으로 받을 수 있음
+- **문제**: 퀘스트 보상 수령 여부를 브라우저 localStorage에만 저장해서, 같은 사용자가 시크릿 창이나 다른 기기로 접속하면 이미 받은 보상을 또 받을 수 있었습니다.
+- **해결**: `quest_claims` 테이블을 신설하고 `(user_id, claim_key)`에 유니크 제약을 걸었습니다. 이미 받은 퀘스트를 다시 저장하려는 시도는 DB가 그냥 거부하기 때문에, 별도 잠금 로직 없이 중복 수령을 막을 수 있었습니다.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 4. 모바일에서 캘린더의 "통계에서 제외" 목록이 스크롤되지 않음
+- **문제**: 캘린더에서 날짜를 눌러 나오는 기록 목록이 모바일 화면에서는 일정 높이 아래로 잘려서, 뒤쪽 기록의 "통계에서 제외" 버튼에 손이 닿지 않았습니다.
+- **원인**: 이 목록에 PC 화면(가로로 캘린더와 나란히 배치)에서만 스크롤(`lg:overflow-y-auto`)이 걸려 있었는데, 높이를 캘린더에 맞추는 제한(`max-height`)은 화면 크기와 관계없이 항상 걸려 있었습니다. 모바일에서는 높이만 잘리고 스크롤할 방법이 없었던 것입니다.
+- **해결**: 스크롤을 모든 화면 크기에서 적용되도록 수정했습니다.
 
-## Deploy on Vercel
+## 화면 구성
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+랜딩 → 간편 회원가입/로그인 → 대시보드(출퇴근 기록) → 경로 안내 지도 → 배지/퀘스트 → 캘린더/통계 → 커뮤니티 → 설정. 전체 화면 흐름과 각 기능의 자세한 설명은 제출 문서를 참고하세요.
