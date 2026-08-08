@@ -151,9 +151,10 @@ export function comparisonPercent(current: number | null, previous: number | nul
   return Math.round((current - previous) / previous * 100);
 }
 
-export function getStatsFallbackComment(stats: MonthlyStats) {
-  if (!stats.monthRecords.length) return '아직 분석할 기록이 없어요. 출퇴근을 완료하면 리포트를 만들게요.';
-  if (!stats.evaluatedCommutes) return '근무일의 도착 시간이 있는 출근 기록이 필요해요.';
-  if (!stats.lateCount) return `평가 가능한 출근 ${stats.evaluatedCommutes}건이 모두 정시 도착이에요.`;
-  return `평가 가능한 출근 ${stats.evaluatedCommutes}건 중 ${stats.lateCount}건이 늦었어요. 평균 ${stats.avgLateMinutes}분의 여유를 더해 보세요.`;
+/** 펫이 직접 말하는 느낌의 반말 3줄(칭찬/관찰-잔소리/응원)로 구성. AI 응답이 오기 전까지 보여주는 기본값이기도 함. */
+export function getStatsFallbackComment(stats: MonthlyStats): string[] {
+  if (!stats.monthRecords.length) return ['아직 통계에 반영된 기록이 없어!', '출근하고 도착까지 찍어줘야 내가 분석할 수 있어.', '오늘부터 같이 시작해볼까?'];
+  if (!stats.evaluatedCommutes) return ['도착 시간이 있는 출근 기록이 더 필요해.', '출근만 누르고 도착을 안 찍으면 통계에 안 잡혀.', '다음엔 도착까지 꼭 눌러줘!'];
+  if (!stats.lateCount) return [`평가 가능한 출근 ${stats.evaluatedCommutes}건이 전부 정시 도착이야!`, '오늘은 출근을 잘했네?? 잘했어!', '이 페이스 그대로만 가자, 나 믿지?'];
+  return [`출근 ${stats.evaluatedCommutes}건 중 ${stats.lateCount}건이 지각이었어.`, `평균 ${stats.avgLateMinutes}분씩 늦었더라, 다음엔 조금만 더 일찍 나와보자!`, '그래도 꾸준히 기록한 거 칭찬해!'];
 }

@@ -106,7 +106,7 @@ function promptFor(request: AiRequest) {
   if (request.kind === 'route-comment') return `${guard}\n경로 코치로서 확인되지 않은 실시간 상황은 추측하지 마라. actions는 2~3개다. 형식: {"summary":"","caution":"","actions":[""]}\nDATA=${JSON.stringify(request.input)}`;
   if (request.kind === 'route-guide') return `${guard}\n이동 안내를 짧게 작성하라. 형식: {"route":"","recommended_departure":"","difficulty":"peaceful|caution|alert|danger","message":""}\nDATA=${JSON.stringify(request.input)}`;
   if (request.kind === 'character-message') return `${guard}\n친근한 성장형 캐릭터 말투로 한국어 한 문장, 45자 이내로 작성하라. mode가 coach이면 DATA.summary의 출퇴근 기록 요약을 보고 구체적으로 칭찬하거나 가볍게 잔소리하라. 같은 표현 반복을 피하고 주소·계정·개인정보는 묻거나 추측하지 마라. 형식: {"message":""}\nDATA=${JSON.stringify(request.input)}`;
-  if (request.kind === 'stats-comment') return `${guard}\n출퇴근 기록 코치로서 과장하지 말고 관찰 하나와 다음 행동 하나를 한국어 두 문장, 180자 이내로 작성하라. 형식: {"comment":""}\nDATA=${JSON.stringify(request.input)}`;
+  if (request.kind === 'stats-comment') return `${guard}\n친근한 성장형 캐릭터(펫) 말투로 사용자의 출퇴근 통계에 대한 짧은 한마디 3개를 반말로 작성하라. 첫 번째는 칭찬, 두 번째는 DATA의 수치에 근거한 관찰이나 가벼운 잔소리, 세 번째는 응원으로 구성하고 각각 한국어 30자 이내로 작성하라. 과장하지 말고 같은 표현 반복을 피하라. 형식: {"comments":["","",""]}\nDATA=${JSON.stringify(request.input)}`;
   return `${guard}\nDATA.history는 최근 대화 순서대로 나열한 이전 질문과 답변이다. 현재 질문이 "그거", "추천", "그럼" 같은 대명사나 생략으로 이전 대화를 가리키면 history를 참고해 무엇을 말하는지 파악하고, 이미 나온 목적지·시간·우선순위 정보를 다시 묻지 마라. 출퇴근 질문에 제공된 context와 history만 사용해 답하라. 개인정보나 기록 변경을 요구하지 말고 확인되지 않은 실시간 정보는 추측하지 마라. 결론/핵심 근거/출처/주의사항을 구분하라. evidence.kind는 realtime|record|estimate 중 하나다. 길이 제한을 반드시 지켜라: text는 300자 이내, details는 최대 4개이고 각 항목 180자 이내, sources는 최대 4개이고 각 항목 120자 이내, cautions는 최대 4개이고 각 항목 180자 이내, evidence는 최대 6개이고 각 label은 180자 이내다. 형식: {"text":"","details":[""],"conclusion":"","evidence":[{"label":"","kind":"estimate","checkedAt":"","values":[""],"fallback":false,"source":""}],"sources":[""],"cautions":[""]}\nDATA=${JSON.stringify(request.input)}`;
 }
 
@@ -127,7 +127,7 @@ function validateResult(kind: AiRequest['kind'], value: unknown): unknown {
     return { route: value.route, recommended_departure: value.recommended_departure, difficulty: value.difficulty, message: value.message };
   }
   if (kind === 'character-message') { if (!bounded(value.message, 80)) throw new Error('Invalid character message'); return value.message; }
-  if (kind === 'stats-comment') { if (!bounded(value.comment, 240)) throw new Error('Invalid stats comment'); return value.comment; }
+  if (kind === 'stats-comment') { if (!Array.isArray(value.comments) || value.comments.length !== 3 || !value.comments.every((item) => bounded(item, 60))) throw new Error('Invalid stats comment'); return value.comments; }
   if (!bounded(value.text, 300) || !Array.isArray(value.details) || value.details.length > 4 || !value.details.every((item) => bounded(item, 180))) throw new Error('Invalid assistant answer');
   const conclusion = value.conclusion === undefined ? undefined : bounded(value.conclusion, 300) ? value.conclusion : undefined;
   const sources = Array.isArray(value.sources) ? value.sources.filter((item) => bounded(item, 120)).slice(0, 4) : undefined;

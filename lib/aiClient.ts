@@ -97,7 +97,7 @@ export function generateCoachMessage(records: CommuteRecord[], now: Date, charac
 export function generatePlayMessage(characterStage: string) { return characterRequest({ mode: 'play', characterStage, variant: messageVariant() }, pickPetLine(['좋아, 같이 놀자!', '기분 좋아졌어! 한 번 더!', '잠깐 쉬면서 나랑 놀자.', '헤헤, 네가 놀아주니까 신난다!'])).enhancement; }
 export function generatePokeMessage(characterStage: string) { return characterRequest({ mode: 'poke', characterStage, variant: messageVariant() }, pickPetLine(['간지러워!', '왜 불렀어? 기록 확인해줄까?', '나 여기 있어!', '콕 찔렀지? 오늘도 같이 힘내자!', '응? 무슨 일이야?'])).enhancement; }
 
-export function requestStatsComment(stats: MonthlyStats, monthLabel: string): Enhancement<string> {
+export function requestStatsComment(stats: MonthlyStats, monthLabel: string): Enhancement<string[]> {
   const fallback = getStatsFallbackComment(stats);
   const { evaluatedCommutes, workStartMinutes, lateCount, lateRate, avgLateMinutes, avgCommuteDuration } = stats;
   const summary = { commuteArrivals: stats.commuteArrivals.length, evaluatedCommutes, workStartMinutes, lateCount, lateRate, avgLateMinutes, avgCommuteDuration, excludedRecords: stats.quality.excludedRecords.length };

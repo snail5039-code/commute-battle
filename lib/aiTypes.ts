@@ -94,7 +94,7 @@ export type AiResultMap = {
   'route-comment': RouteComment;
   'route-guide': RouteGuideResponse;
   'character-message': string;
-  'stats-comment': string;
+  'stats-comment': string[];
   'assistant': AssistantAnswer;
 };
 

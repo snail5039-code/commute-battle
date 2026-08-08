@@ -8,6 +8,7 @@ import { computePeriodStats } from '@/lib/stats';
 import { useStore } from '@/lib/store';
 import { PET_CATALOG, useSelectedPetId } from '@/lib/petCatalog';
 import { buildWeeklyRecapData } from '@/lib/weeklyRecapCard';
+import PetStatsMood from './PetStatsMood';
 import WeeklyRecapCard from './WeeklyRecapCard';
 
 export default function StatsSummaryWidget({ user, records }: { user: User; records: CommuteRecord[] }) {
@@ -36,6 +37,8 @@ export default function StatsSummaryWidget({ user, records }: { user: User; reco
         <p className="mt-1 text-lg font-bold">{value}<span className="ml-0.5 text-xs">{suffix}</span></p>
       </div>)}
     </div>
+
+    <PetStatsMood stats={stats} monthLabel={stats.range.label} className="mt-3" />
 
     {showRecap && (
       <WeeklyRecapCard

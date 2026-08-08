@@ -6,6 +6,7 @@ import { AlertTriangle, ChevronLeft, ChevronRight, Download, Info, Share2 } from
 import TopBar from '@/components/TopBar';
 import StatsCharts from '@/components/StatsCharts';
 import WeeklyRecapCard from '@/components/WeeklyRecapCard';
+import PetStatsMood from '@/components/PetStatsMood';
 import { qualitySummary } from '@/lib/dataQuality';
 import { comparisonPercent, computePeriodStats, StatsPeriod } from '@/lib/stats';
 import { buildWeeklyRecapData } from '@/lib/weeklyRecapCard';
@@ -28,13 +29,6 @@ function Tile({ label, value, change }: { label: string; value: string; change: 
       {change === null ? '이전 기간 비교 없음' : `이전 기간 대비 ${change > 0 ? '+' : ''}${change}%`}
     </p>
   </div>;
-}
-
-function statsComment(stats: ReturnType<typeof computePeriodStats>) {
-  if (!stats.monthRecords.length) return '아직 통계에 반영된 기록이 없어요. 출근 후 도착까지 완료하면 리포트가 만들어집니다.';
-  if (!stats.evaluatedCommutes) return '도착 시간이 있는 출근 기록이 더 필요해요. 출근 시작만 누른 기록은 완료 전이라 통계에서 제외됩니다.';
-  if (!stats.lateCount) return `평가 가능한 출근 ${stats.evaluatedCommutes}건이 모두 정시 도착이에요.`;
-  return `평가 가능한 출근 ${stats.evaluatedCommutes}건 중 ${stats.lateCount}건이 지각으로 계산됐어요. 평균 ${stats.avgLateMinutes ?? 0}분의 여유를 더해 보세요.`;
 }
 
 export default function StatsPage() {
@@ -109,7 +103,7 @@ export default function StatsPage() {
             </div>
           </div>
 
-          <section className="rounded-2xl border border-blue-100 bg-blue-50 p-5 text-sm text-blue-950">{statsComment(stats)}</section>
+          <PetStatsMood stats={stats} monthLabel={stats.range.label} />
 
           <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-xs text-slate-600 md:grid-cols-3">
             <p><strong className="block text-sm text-slate-950">전체 기록</strong>{rawPeriodRecords.length}건</p>
