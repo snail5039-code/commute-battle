@@ -1,26 +1,54 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, Gift, ShieldCheck, X } from 'lucide-react';
 import type { CommuteRecord } from '@/lib/types';
-import { claimQuestReward, getQuestProgress, readQuestLedger, saveQuestLedger, type QuestClaimLedger } from '@/lib/quests';
+import { claimQuestReward, getQuestProgress, mergeQuestLedgers, readQuestLedger, saveQuestLedger, type QuestClaimLedger } from '@/lib/quests';
+import { fetchQuestLedger, persistQuestClaim } from '@/lib/questLedger';
 
-export default function QuestBoard({ records, onReward }: { records: CommuteRecord[]; onReward?: (exp: number) => Promise<boolean> }) {
+export default function QuestBoard({ userId, records, onReward }: { userId: string; records: CommuteRecord[]; onReward?: (exp: number) => Promise<boolean> }) {
+  // localStorage 기록은 DB 조회가 끝나기 전까지 화면이 빈 상태로 깜빡이지 않게 하는 초기값일
+  // 뿐이고, 실제로 "이미 받았는지"는 항상 DB(quest_claims)가 기준이다 — 그래야 시크릿창이나
+  // 다른 기기에서 열어도 같은 퀘스트를 두 번 받을 수 없다.
   const [ledger, setLedger] = useState<QuestClaimLedger>(() => readQuestLedger());
   const [busy, setBusy] = useState<string | null>(null);
   const [completedQuest, setCompletedQuest] = useState<{ title: string; exp: number } | null>(null);
+  const [notice, setNotice] = useState('');
   const quests = getQuestProgress(records);
+
+  useEffect(() => {
+    let active = true;
+    fetchQuestLedger(userId).then((remote) => {
+      if (!active) return;
+      const merged = mergeQuestLedgers(readQuestLedger(), remote);
+      saveQuestLedger(merged);
+      setLedger(merged);
+    });
+    return () => { active = false; };
+  }, [userId]);
 
   const claim = async (quest: (typeof quests)[number]) => {
     if (busy || ledger.claimKeys.includes(quest.claimKey)) return;
     setBusy(quest.claimKey);
+    setNotice('');
     const result = claimQuestReward(quest, ledger);
     if (result.accepted) {
-      const saved = await onReward?.(result.expAwarded) ?? true;
-      if (saved) {
-        saveQuestLedger(result.ledger);
-        setLedger(result.ledger);
-        setCompletedQuest({ title: quest.title, exp: result.expAwarded });
+      const persisted = await persistQuestClaim(userId, result);
+      if (persisted) {
+        const saved = await onReward?.(result.expAwarded) ?? true;
+        if (saved) {
+          saveQuestLedger(result.ledger);
+          setLedger(result.ledger);
+          setCompletedQuest({ title: quest.title, exp: result.expAwarded });
+        }
+      } else {
+        // insert가 실패했다면 대부분 (user_id, claim_key) 유니크 제약에 걸린 것 — 다른 기기/탭에서
+        // 이미 받았다는 뜻이다. DB를 다시 읽어 화면을 맞추고, EXP는 다시 주지 않는다.
+        const remote = await fetchQuestLedger(userId);
+        const merged = mergeQuestLedgers(ledger, remote);
+        saveQuestLedger(merged);
+        setLedger(merged);
+        setNotice('이미 다른 기기에서 받은 퀘스트예요.');
       }
     }
     setBusy(null);
@@ -29,6 +57,7 @@ export default function QuestBoard({ records, onReward }: { records: CommuteReco
   return <>
     <section className="card p-5" aria-labelledby="quest-title">
     <div className="mb-4 flex items-start justify-between gap-3"><div><h2 id="quest-title" className="font-bold text-slate-900">출근 퀘스트</h2><p className="mt-1 text-xs text-slate-500">실제 기록으로 매일·매주 자동 갱신돼요.</p></div><ShieldCheck className="text-emerald-500" size={22} /></div>
+    {notice && <p role="status" className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">{notice}</p>}
     <div className="grid gap-3 sm:grid-cols-2">{quests.map((quest) => {
       const claimed = ledger.claimKeys.includes(quest.claimKey); const percent = Math.min(100, quest.current / quest.target * 100);
       return <article key={quest.claimKey} className="rounded-2xl border border-slate-200 p-4">

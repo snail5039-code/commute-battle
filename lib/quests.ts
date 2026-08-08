@@ -36,7 +36,7 @@ export function getQuestProgress(records: CommuteRecord[], now = new Date()): Qu
 }
 
 export interface QuestClaimLedger { claimKeys: string[]; rewardedRecordIds: string[]; }
-export interface QuestClaimResult { accepted: boolean; expAwarded: number; ledger: QuestClaimLedger; reason?: 'incomplete' | 'already-claimed' | 'records-already-rewarded'; }
+export interface QuestClaimResult { accepted: boolean; expAwarded: number; ledger: QuestClaimLedger; reason?: 'incomplete' | 'already-claimed' | 'records-already-rewarded'; delta?: { claimKey: string; rewardedRecordIds: string[] }; }
 export function claimQuestReward(quest: QuestProgress, ledger: QuestClaimLedger): QuestClaimResult {
   const claims = new Set(ledger.claimKeys); const rewarded = new Set(ledger.rewardedRecordIds);
   if (!quest.completed) return { accepted: false, expAwarded: 0, ledger, reason: 'incomplete' };
@@ -46,7 +46,11 @@ export function claimQuestReward(quest: QuestProgress, ledger: QuestClaimLedger)
   const requiredIds = quest.sourceRecordIds.slice(0, quest.target).map((id) => `${quest.key}:${id}`);
   if (requiredIds.some((id) => rewarded.has(id))) return { accepted: false, expAwarded: 0, ledger, reason: 'records-already-rewarded' };
   claims.add(quest.claimKey); requiredIds.forEach((id) => rewarded.add(id));
-  return { accepted: true, expAwarded: quest.rewardExp, ledger: { claimKeys: [...claims], rewardedRecordIds: [...rewarded] } };
+  return { accepted: true, expAwarded: quest.rewardExp, ledger: { claimKeys: [...claims], rewardedRecordIds: [...rewarded] }, delta: { claimKey: quest.claimKey, rewardedRecordIds: requiredIds } };
+}
+
+export function mergeQuestLedgers(a: QuestClaimLedger, b: QuestClaimLedger): QuestClaimLedger {
+  return { claimKeys: [...new Set([...a.claimKeys, ...b.claimKeys])], rewardedRecordIds: [...new Set([...a.rewardedRecordIds, ...b.rewardedRecordIds])] };
 }
 
 export const QUEST_LEDGER_KEY = 'commute-battle:quest-ledger';

@@ -1,8 +1,9 @@
 import { supabase } from './supabase';
 import { isCommuteOnTime, isReturnOnTime } from './onTime';
-import { applyExpReward, type LevelProgress } from './characterStages';
+import { type LevelProgress } from './characterStages';
 import { CommuteRecord, User } from './types';
 import { localDateKey } from './date';
+import { awardExpSafely } from './expReward';
 
 export async function recordArrival(
   user: User,
@@ -34,20 +35,13 @@ export async function recordArrival(
 
   if (error) throw error;
 
-  const progress = applyExpReward(user.character_level, user.character_exp, expGained);
-
-  await supabase
-    .from('users')
-    .update({
-      character_level: progress.level,
-      character_exp: progress.exp,
-      character_stage: progress.stage,
-      total_commute_arrivals:
-        activeRecord.type === 'commute'
-          ? (user.total_commute_arrivals || 0) + 1
-          : user.total_commute_arrivals,
-    })
-    .eq('id', user.id);
+  const progress = await awardExpSafely(user, expGained, (current) => ({
+    total_commute_arrivals:
+      activeRecord.type === 'commute'
+        ? (current.total_commute_arrivals || 0) + 1
+        : current.total_commute_arrivals,
+  }));
+  if (!progress) throw new Error('Failed to update character EXP');
 
   return progress;
 }
@@ -76,17 +70,10 @@ export async function recordInstantTrip(
 
   if (error) throw error;
 
-  const progress = applyExpReward(user.character_level, user.character_exp, expGained);
-
-  await supabase
-    .from('users')
-    .update({
-      character_level: progress.level,
-      character_exp: progress.exp,
-      character_stage: progress.stage,
-      total_commute_arrivals: type === 'commute' ? (user.total_commute_arrivals || 0) + 1 : user.total_commute_arrivals,
-    })
-    .eq('id', user.id);
+  const progress = await awardExpSafely(user, expGained, (current) => ({
+    total_commute_arrivals: type === 'commute' ? (current.total_commute_arrivals || 0) + 1 : current.total_commute_arrivals,
+  }));
+  if (!progress) throw new Error('Failed to update character EXP');
 
   return progress;
 }
