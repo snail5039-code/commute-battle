@@ -115,7 +115,7 @@ export default function SettingsSections(props: SettingsSectionsProps) {
   const [localSettings, setLocalSettings] = useState<LocalSettings>(DEFAULT_LOCAL_SETTINGS);
   const [localStatus, setLocalStatus] = useState('');
   const [addressSearchLoading, setAddressSearchLoading] = useState<'home' | 'work' | null>(null);
-  const [theme, setTheme] = useState<AppTheme>('white');
+  const [theme, setTheme] = useState<AppTheme>('dark');
 
   useEffect(() => {
     const load = () => {
@@ -151,7 +151,7 @@ export default function SettingsSections(props: SettingsSectionsProps) {
   const resetAll = () => {
     clearAllLocalSettings(props.userId);
     props.onScheduleChange({ ...DEFAULT_WORK_SCHEDULE, overrides: {} });
-    setPreference('fastest'); setLearning(true); setPetId(DEFAULT_PET_ID); setLocalSettings(DEFAULT_LOCAL_SETTINGS); setTheme('white'); saveTheme('white');
+    setPreference('fastest'); setLearning(true); setPetId(DEFAULT_PET_ID); setLocalSettings(DEFAULT_LOCAL_SETTINGS); setTheme('dark'); saveTheme('dark');
     setLocalStatus('이 기기의 앱 설정을 모두 초기화했습니다. 주소와 계정 데이터는 삭제하지 않았습니다.');
   };
 

@@ -23,12 +23,12 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#2563eb',
+  themeColor: '#111315',
 };
 
 export default function RootLayout({ children }: LayoutProps<'/'>) {
   return (
-    <html lang="ko" className="h-full antialiased">
+    <html lang="ko" className="h-full antialiased" data-theme="dark" suppressHydrationWarning>
       <body className="min-h-full">
         <AppShell>{children}</AppShell>
         <PwaInstallPrompt />

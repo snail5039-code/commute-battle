@@ -2,9 +2,9 @@ export type AppTheme = 'white' | 'dark' | 'plum';
 export const THEME_KEY = 'commute-battle:theme';
 
 export function loadTheme(): AppTheme {
-  if (typeof window === 'undefined') return 'white';
+  if (typeof window === 'undefined') return 'dark';
   const value = localStorage.getItem(THEME_KEY);
-  return value === 'dark' || value === 'plum' ? value : 'white';
+  return value === 'white' || value === 'plum' ? value : 'dark';
 }
 
 export function applyTheme(theme: AppTheme) {
