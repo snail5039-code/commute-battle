@@ -339,14 +339,14 @@ export default function PetWidget() {
         <div className="relative w-full h-full">
           {message ? (
             <div className="pet-bubble pointer-events-auto absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[200px] card p-3 flex items-start gap-2">
-              <p className="text-[12px] text-neutral-700 leading-snug flex-1">
+              <p className="flex-1 text-[12px] leading-snug text-[var(--foreground)]">
                 {message}
               </p>
               <button
                 type="button"
                 aria-label="펫 말풍선 닫기"
                 onClick={() => setMessageBoth(null)}
-                className="text-neutral-300 hover:text-neutral-500 shrink-0"
+                className="shrink-0 text-[var(--muted)] hover:text-[var(--foreground)]"
               >
                 <X size={13} />
               </button>

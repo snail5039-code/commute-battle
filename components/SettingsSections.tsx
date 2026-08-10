@@ -177,8 +177,8 @@ export default function SettingsSections(props: SettingsSectionsProps) {
     }
   };
 
-  return <div className="grid gap-5 lg:grid-cols-[14rem_minmax(0,1fr)]">
-    <nav aria-label="설정 항목" className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
+  return <div className="grid gap-5 xl:grid-cols-[14rem_minmax(0,1fr)]">
+    <nav aria-label="설정 항목" className="flex gap-2 overflow-x-auto pb-1 xl:flex-col xl:overflow-visible">
       {SETTINGS_SECTIONS.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => selectSection(id)} aria-current={active === id ? 'page' : undefined} className={`flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-left text-sm font-bold ${active === id ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><Icon size={17}/>{label}</button>)}
     </nav>
     <div className="min-w-0">
