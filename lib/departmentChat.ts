@@ -5,6 +5,7 @@ export interface ChatWorkspace { id: string; name: string; ownerId: string; role
 export interface ChatChannel { id: string; workspaceId: string; name: string; slug: string; description: string }
 export interface ChatMessage { id: string; channelId: string; authorId: string; author: string; content: string; createdAt: string }
 interface MessageRow { id: string; channel_id: string; author_id: string; content: string; created_at: string }
+interface ChatProfileRow { id: string; nickname: string | null; username: string | null }
 
 export const CHAT_MESSAGE_MAX = 1000;
 
@@ -49,11 +50,12 @@ export async function acceptWorkspaceInvite(code: string) {
   return data as string;
 }
 
-async function fetchAuthors(ids: string[]) {
+export async function fetchChatProfiles(ids: string[]) {
   const uniqueIds = [...new Set(ids)];
   if (!uniqueIds.length) return new Map<string, string>();
-  const { data } = await supabase.from('users').select('id, nickname, username').in('id', uniqueIds);
-  return new Map((data ?? []).map((user) => [user.id, user.nickname || user.username || '동료']));
+  const { data, error } = await supabase.rpc('get_chat_member_profiles', { target_user_ids: uniqueIds });
+  if (error) throw error;
+  return new Map<string, string>(((data ?? []) as ChatProfileRow[]).map((user) => [user.id, user.nickname || user.username || '동료']));
 }
 
 function toMessage(row: MessageRow, authors: Map<string, string>): ChatMessage {
@@ -64,7 +66,7 @@ export async function fetchChannelMessages(channelId: string): Promise<ChatMessa
   const { data, error } = await supabase.from('chat_messages').select('id, channel_id, author_id, content, created_at').eq('channel_id', channelId).order('created_at', { ascending: false }).limit(100);
   if (error) throw error;
   const rows = ((data ?? []) as MessageRow[]).reverse();
-  const authors = await fetchAuthors(rows.map((row) => row.author_id));
+  const authors = await fetchChatProfiles(rows.map((row) => row.author_id));
   return rows.map((row) => toMessage(row, authors));
 }
 
@@ -76,11 +78,11 @@ export async function createChannelMessage(channelId: string, content: string): 
   const { data, error } = await supabase.from('chat_messages').insert({ channel_id: channelId, author_id: user.id, content: cleanContent }).select('id, channel_id, author_id, content, created_at').single();
   if (error) throw error;
   const row = data as MessageRow;
-  const authors = await fetchAuthors([row.author_id]);
+  const authors = await fetchChatProfiles([row.author_id]);
   return toMessage(row, authors);
 }
 
 export async function hydrateRealtimeMessage(row: MessageRow): Promise<ChatMessage> {
-  const authors = await fetchAuthors([row.author_id]);
+  const authors = await fetchChatProfiles([row.author_id]);
   return toMessage(row, authors);
 }

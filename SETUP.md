@@ -6,7 +6,7 @@
 - **GitHub**: https://github.com/snail5039-code/commute-battle (public)
 - **Vercel**: https://commute-battle.vercel.app (자동 배포됨 — GitHub master에 push하면 Vercel이 알아서 재배포. **직접 `vercel --prod` 실행하지 말 것**, 사용자가 명시적으로 지시한 규칙)
 - Supabase 프로젝트: `commute-battle` (조직 snail5039-aiagent)
-- 실제 계정: username `snail2483` (home: 대전 유성구 원신흥로100번길, work: 서울 강남구 가로수길)
+- 메인 관리자 계정: username `snail2483` (비밀번호·집/직장 주소 등 개인정보는 저장소에 기록하지 않음)
 
 ## 로컬 실행
 ```bash

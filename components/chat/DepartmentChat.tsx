@@ -108,7 +108,7 @@ export default function DepartmentChat() {
   };
 
   return <div className="grid h-[calc(100dvh-4.5rem)] min-h-[38rem] overflow-hidden bg-white md:h-screen lg:grid-cols-[16.5rem_minmax(0,1fr)]">
-    <aside className="flex min-h-0 flex-col border-b border-[#5f3567] bg-[#3f0e40] text-white lg:border-b-0 lg:border-r">
+    <aside className="flex min-h-0 flex-col border-b border-[var(--nav-border)] bg-[var(--nav-bg)] text-[var(--nav-text)] lg:border-b-0 lg:border-r">
       <div className="flex h-14 shrink-0 items-center gap-2 border-b border-white/15 px-3">
         <label className="min-w-0 flex-1"><span className="sr-only">워크스페이스 선택</span><select value={workspaceId} onChange={(event) => { setLoading(true); setChannels([]); setChannelId(''); setMessages([]); setWorkspaceId(event.target.value); }} className="h-9 w-full truncate bg-transparent px-1 text-[15px] font-black text-white outline-none [&>option]:text-slate-950"><option value="">워크스페이스 선택</option>{workspaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <button type="button" onClick={() => openDialog('workspace')} aria-label="워크스페이스 만들기" className="grid size-8 place-items-center hover:bg-white/10"><Plus size={18}/></button>

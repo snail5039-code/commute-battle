@@ -11,9 +11,9 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="sticky top-0 z-50 hidden h-screen w-16 shrink-0 flex-col items-center border-r border-[#5f3567] bg-[#3f0e40] py-3 md:flex">
-      <Link href="/" className="group relative flex size-10 items-center justify-center text-white" aria-label="출퇴근 생존일지 홈">
-        <StatusIcon icon={Siren} inverted className="bg-[#611f69] transition-colors group-hover:bg-[#7b2b84]" />
+    <aside className="sticky top-0 z-50 hidden h-screen w-16 shrink-0 flex-col items-center border-r border-[var(--nav-border)] bg-[var(--nav-bg)] py-3 text-[var(--nav-text)] md:flex">
+      <Link href="/" className="group relative flex size-10 items-center justify-center" aria-label="출퇴근 생존일지 홈">
+        <StatusIcon icon={Siren} inverted className="bg-[var(--nav-active-bg)] text-[var(--nav-active-text)] transition-opacity group-hover:opacity-85" />
         <span className="sidebar-tooltip">출퇴근 생존일지</span>
       </Link>
 
@@ -24,7 +24,7 @@ export default function Sidebar() {
           const label = item.label;
           return (
             <Link key={item.href} href={item.href} aria-current={isActive ? 'page' : undefined} aria-label={label}
-              className={`group relative flex size-10 items-center justify-center transition-colors ${isActive ? 'bg-white text-[#3f0e40]' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}>
+              className={`group relative flex size-10 items-center justify-center transition-colors ${isActive ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-text)]' : 'text-[var(--nav-text)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]'}`}>
               <Icon size={20} strokeWidth={isActive ? 2.5 : 2} aria-hidden="true" />
               <span className="sidebar-tooltip">{label}</span>
             </Link>
@@ -32,7 +32,7 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="border-t border-white/15 pt-3 text-white">
+      <div className="border-t border-[var(--nav-border)] pt-3">
         <LogoutButton compact />
       </div>
     </aside>

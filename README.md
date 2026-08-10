@@ -83,6 +83,11 @@ Open-Meteo 날씨 API와 OSRM 폴백은 별도 키 없이 동작합니다. ODSAY
    - `202608060001_community_posts.sql`: 커뮤니티 테이블, RLS 정책, 기본 공지
    - `202608060002_simple_accounts.sql`: 아이디·닉네임 컬럼과 제약 조건
    - `202608080001_quest_claims.sql`: 퀘스트 보상 중복 수령 방지
+   - `202608100001_department_chat.sql`: 초기 부서 채팅 테이블과 정책
+   - `202608100002_workspaces.sql`: 워크스페이스·채널·초대 기능
+   - `202608100003_admin_location.sql`: 관리자 승인·출퇴근 현황·위치 공유
+   - `202608100004_direct_messages.sql`: 워크스페이스 개인 채팅
+   - `202608100005_core_rls.sql`: 개인 데이터 RLS와 제한된 채팅 프로필 조회
 3. Supabase Authentication에서 Email 로그인을 활성화합니다.
 4. 가입 직후 바로 로그인되는 현재 흐름을 사용하려면 이메일 확인(Confirm email)을 비활성화합니다.
 5. 배포 환경에서는 허용 URL과 리디렉션 URL에 실제 서비스 도메인을 등록합니다.

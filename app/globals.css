@@ -12,6 +12,45 @@
   --muted: #616061;
   --sidebar-width: 4rem;
   --font-system-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --nav-bg: #ffffff;
+  --nav-border: #d9d7da;
+  --nav-text: #616061;
+  --nav-active-bg: #611f69;
+  --nav-active-text: #ffffff;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #111315;
+  --foreground: #e8e8e8;
+  --surface: #1a1d21;
+  --surface-muted: #222529;
+  --border: #35383d;
+  --muted: #a6a8ab;
+  --brand: #c77dce;
+  --brand-strong: #dfa3e4;
+  --nav-bg: #0b0d0f;
+  --nav-border: #35383d;
+  --nav-text: #aeb0b4;
+  --nav-active-bg: #611f69;
+  --nav-active-text: #ffffff;
+}
+
+html[data-theme="plum"] {
+  color-scheme: dark;
+  --background: #260b28;
+  --foreground: #f7eef8;
+  --surface: #351237;
+  --surface-muted: #421846;
+  --border: #68416d;
+  --muted: #cdb8d0;
+  --brand: #e6b7ea;
+  --brand-strong: #f3d7f5;
+  --nav-bg: #3f0e40;
+  --nav-border: #75477a;
+  --nav-text: #d8c2da;
+  --nav-active-bg: #ffffff;
+  --nav-active-text: #3f0e40;
 }
 
 @theme inline {
@@ -24,10 +63,17 @@
 
 html { background: var(--background); }
 
-html[data-contrast="high"] {
+html:not([data-theme="dark"]):not([data-theme="plum"])[data-contrast="high"] {
   --foreground: #0f172a;
   --muted: #475569;
   --border: #cbd5e1;
+}
+
+html[data-theme="dark"][data-contrast="high"],
+html[data-theme="plum"][data-contrast="high"] {
+  --foreground: #ffffff;
+  --muted: #e2e8f0;
+  --border: #94a3b8;
 }
 
 body {
@@ -97,6 +143,20 @@ input:not([type="checkbox"]):not([type="radio"]), select, textarea {
 }
 
 button, a, input, select, textarea { transition-duration: 120ms; }
+
+html[data-theme="dark"] :where(.bg-white),
+html[data-theme="plum"] :where(.bg-white) { background-color: var(--surface) !important; }
+html[data-theme="dark"] :where(.bg-slate-50, .bg-slate-100),
+html[data-theme="plum"] :where(.bg-slate-50, .bg-slate-100) { background-color: var(--surface-muted) !important; }
+html[data-theme="dark"] :where(.text-slate-950, .text-slate-900, .text-slate-800, .text-neutral-900, .text-neutral-800),
+html[data-theme="plum"] :where(.text-slate-950, .text-slate-900, .text-slate-800, .text-neutral-900, .text-neutral-800) { color: var(--foreground) !important; }
+html[data-theme="dark"] :where(.text-slate-700, .text-slate-600, .text-slate-500, .text-neutral-600, .text-neutral-500),
+html[data-theme="plum"] :where(.text-slate-700, .text-slate-600, .text-slate-500, .text-neutral-600, .text-neutral-500) { color: var(--muted) !important; }
+html[data-theme="dark"] :where(.border-slate-100, .border-slate-200, .border-slate-300),
+html[data-theme="plum"] :where(.border-slate-100, .border-slate-200, .border-slate-300) { border-color: var(--border) !important; }
+html[data-theme="dark"] input, html[data-theme="dark"] select, html[data-theme="dark"] textarea,
+html[data-theme="plum"] input, html[data-theme="plum"] select, html[data-theme="plum"] textarea { background-color: var(--surface); color: var(--foreground); border-color: var(--border); }
+[class*="bg-[#3f0e40]"] { background-color: var(--nav-bg) !important; color: var(--nav-text) !important; }
 
 @media (max-width: 767px) {
   body { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }

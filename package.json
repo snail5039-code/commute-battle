@@ -1,6 +1,8 @@
 {
   "name": "commute-battle",
   "version": "0.1.0",
+  "description": "워크스페이스 채팅과 출퇴근 기록을 한곳에서 관리하는 데스크톱 앱",
+  "author": "Commute Battle Team",
   "private": true,
   "main": "desktop/main.cjs",
   "scripts": {
@@ -10,8 +12,8 @@
     "lint": "eslint",
     "desktop": "concurrently -k \"npm run dev\" \"wait-on http://127.0.0.1:3000 && electron .\"",
     "desktop:open": "electron .",
-    "desktop:pack": "npm run build && electron-builder --dir",
-    "desktop:dist": "npm run build && electron-builder"
+    "desktop:pack": "electron-builder --dir",
+    "desktop:dist": "electron-builder"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -43,7 +45,7 @@
     "directories": { "output": "dist-desktop" },
     "files": ["desktop/**/*", "package.json"],
     "asar": true,
-    "win": { "target": ["nsis"] },
+    "win": { "target": ["nsis"], "icon": "app/favicon.ico" },
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
   }
 }

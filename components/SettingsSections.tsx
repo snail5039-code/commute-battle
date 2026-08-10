@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { Bell, Bot, BriefcaseBusiness, Cat, MapPinned, Search, ShieldCheck, Trash2 } from 'lucide-react';
+import { Bell, Bot, BriefcaseBusiness, Cat, MapPinned, Palette, Search, ShieldCheck, Trash2 } from 'lucide-react';
 import { clearRouteLearning, isRouteLearningEnabled, setRouteLearningEnabled } from '@/lib/routeLearning';
 import { getRoutePreference, saveRoutePreference, type RoutePreference } from '@/lib/routePreferences';
 import { DEFAULT_PET_ID, PET_CATALOG, PET_IDS, readStoredPetId, storePetId, type PetId } from '@/lib/petCatalog';
@@ -13,12 +13,14 @@ import {
 import type { WorkSchedule, WorkdayMode } from '@/lib/types';
 import { mondayOfWeek } from '@/lib/date';
 import LogoutButton from './LogoutButton';
+import { loadTheme, saveTheme, type AppTheme } from '@/lib/theme';
 
-export type SettingsSectionId = 'work' | 'route' | 'notifications' | 'pet' | 'ai-privacy' | 'account';
+export type SettingsSectionId = 'work' | 'route' | 'appearance' | 'notifications' | 'pet' | 'ai-privacy' | 'account';
 
 export const SETTINGS_SECTIONS: Array<{ id: SettingsSectionId; label: string; icon: typeof BriefcaseBusiness }> = [
   { id: 'work', label: '근무', icon: BriefcaseBusiness },
   { id: 'route', label: '경로', icon: MapPinned },
+  { id: 'appearance', label: '화면', icon: Palette },
   { id: 'notifications', label: '알림', icon: Bell },
   { id: 'pet', label: '펫', icon: Cat },
   { id: 'ai-privacy', label: 'AI·개인정보', icon: Bot },
@@ -113,6 +115,7 @@ export default function SettingsSections(props: SettingsSectionsProps) {
   const [localSettings, setLocalSettings] = useState<LocalSettings>(DEFAULT_LOCAL_SETTINGS);
   const [localStatus, setLocalStatus] = useState('');
   const [addressSearchLoading, setAddressSearchLoading] = useState<'home' | 'work' | null>(null);
+  const [theme, setTheme] = useState<AppTheme>('white');
 
   useEffect(() => {
     const load = () => {
@@ -122,6 +125,7 @@ export default function SettingsSections(props: SettingsSectionsProps) {
       setLearning(isRouteLearningEnabled());
       setPetId(readStoredPetId());
       setLocalSettings(loadLocalSettings(props.userId));
+      setTheme(loadTheme());
     };
     queueMicrotask(load);
     window.addEventListener('hashchange', load);
@@ -147,7 +151,7 @@ export default function SettingsSections(props: SettingsSectionsProps) {
   const resetAll = () => {
     clearAllLocalSettings(props.userId);
     props.onScheduleChange({ ...DEFAULT_WORK_SCHEDULE, overrides: {} });
-    setPreference('fastest'); setLearning(true); setPetId(DEFAULT_PET_ID); setLocalSettings(DEFAULT_LOCAL_SETTINGS);
+    setPreference('fastest'); setLearning(true); setPetId(DEFAULT_PET_ID); setLocalSettings(DEFAULT_LOCAL_SETTINGS); setTheme('white'); saveTheme('white');
     setLocalStatus('이 기기의 앱 설정을 모두 초기화했습니다. 주소와 계정 데이터는 삭제하지 않았습니다.');
   };
 
@@ -204,6 +208,12 @@ export default function SettingsSections(props: SettingsSectionsProps) {
       {active === 'route' && <section id="route" aria-labelledby="route-title" className="card p-5 md:p-7"><h2 id="route-title" className="text-lg font-bold">경로 설정</h2><p className="mt-1 text-sm text-slate-500">추천 우선순위와 선택 기록 학습 여부를 정합니다.</p><fieldset className="mt-6"><legend className="text-sm font-bold">경로 선호</legend><div className="mt-3 grid gap-2 sm:grid-cols-3">{([['fastest','빠른 경로'],['least-walking','적은 도보'],['fewest-transfers','적은 환승']] as const).map(([value, label]) => <label key={value} className={`flex min-h-12 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm font-semibold ${preference === value ? 'border-blue-500 bg-blue-50 text-blue-800' : 'border-slate-200'}`}><input type="radio" name="route-preference" checked={preference === value} onChange={() => { setPreference(value); saveRoutePreference(value); setLocalStatus('경로 선호를 저장했습니다.'); }}/>{label}</label>)}</div></fieldset>
         <label className="mt-6 flex items-start justify-between gap-4 rounded-xl bg-slate-50 p-4"><span><span className="block text-sm font-bold">선택 경로 학습</span><span className="mt-1 block text-xs leading-5 text-slate-500">최근 선택을 이 기기에 저장해 다음 추천에 반영합니다.</span></span><input type="checkbox" checked={learning} onChange={(event) => { setLearning(event.target.checked); setRouteLearningEnabled(event.target.checked); }} className="mt-1 size-5"/></label><div className="mt-5"><ConfirmAction label="학습 기록 초기화" confirmLabel="기록 초기화" onConfirm={() => { clearRouteLearning(); setLocalStatus('경로 학습 기록을 초기화했습니다.'); }}/></div>
       </section>}
+
+      {active === 'appearance' && <section id="appearance" aria-labelledby="appearance-title" className="card p-5 md:p-7"><h2 id="appearance-title" className="text-lg font-bold">화면 테마</h2><p className="mt-1 text-sm text-slate-500">앱 전체의 배경, 패널과 내비게이션 색상을 선택합니다.</p><div className="mt-6 grid gap-3 sm:grid-cols-3">{([
+        ['white', '화이트', '밝고 선명한 기본 화면', '#ffffff', '#611f69'],
+        ['dark', '다크', '눈부심을 줄인 검정 화면', '#1a1d21', '#0b0d0f'],
+        ['plum', '플럼', '보라색 중심의 메신저 화면', '#351237', '#3f0e40'],
+      ] as const).map(([value, label, description, surface, nav]) => <button key={value} type="button" aria-pressed={theme === value} onClick={() => { setTheme(value); saveTheme(value); setLocalStatus(`${label} 테마를 적용했습니다.`); }} className={`border p-3 text-left ${theme === value ? 'border-[var(--brand)] ring-2 ring-[var(--brand)]/20' : 'border-[var(--border)]'}`}><span className="flex h-16 overflow-hidden border border-black/10" aria-hidden="true"><span className="w-1/4" style={{ background: nav }}/><span className="flex-1" style={{ background: surface }}><span className="mt-3 ml-3 block h-2 w-2/3 bg-slate-400/40"/><span className="mt-2 ml-3 block h-5 w-4/5 bg-white/70"/></span></span><strong className="mt-3 block text-sm">{label}</strong><span className="mt-1 block text-xs text-slate-500">{description}</span></button>)}</div></section>}
 
       {active === 'notifications' && <section id="notifications" aria-labelledby="notifications-title" className="card p-5 md:p-7"><h2 id="notifications-title" className="text-lg font-bold">알림 설정</h2><p className="mb-6 mt-1 text-sm text-slate-500">출발 알림과 브라우저 권한을 관리합니다.</p><NotificationSettingsSlot>{props.notificationPanel}</NotificationSettingsSlot><div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 p-4"><p className="text-sm font-bold text-blue-950">홈 화면에 설치</p><p className="mt-1 text-xs leading-5 text-blue-800">기기별 설치 방법과 현재 설치 가능 상태를 별도 페이지에서 확인할 수 있습니다.</p><Link href="/install" className="mt-3 inline-flex min-h-10 items-center rounded-lg bg-white px-3 text-xs font-bold text-blue-700 shadow-sm">설치 방법 보기</Link></div></section>}
 

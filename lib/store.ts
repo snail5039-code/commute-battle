@@ -58,6 +58,7 @@ export function clearAllLocalSettings(userId?: string) {
     'commuteRoutePreference', 'commuteRouteFavorites:v1', 'commuteRouteLearning:v1',
     'commuteRouteLearningEnabled:v1', 'commute-battle:selected-pet', 'petQuiet',
     'uiCompact', 'uiContrast', 'uiReducedMotion',
+    'commute-battle:theme',
   ].forEach((key) => localStorage.removeItem(key));
 }
 

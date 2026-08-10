@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { fetchChatProfiles } from './departmentChat';
 
 export interface DirectMember { userId: string; name: string }
 export interface DirectThread { id: string; workspaceId: string; otherUserId: string; otherName: string }
@@ -11,8 +12,8 @@ export async function fetchWorkspaceMembers(workspaceId: string): Promise<Direct
   if (error) throw error;
   const ids = (members ?? []).map((item) => item.user_id);
   if (!ids.length) return [];
-  const { data: users } = await supabase.from('users').select('id, nickname, username').in('id', ids);
-  return (users ?? []).map((item) => ({ userId: item.id, name: item.nickname || item.username || '동료' }));
+  const names = await fetchChatProfiles(ids);
+  return ids.map((userId) => ({ userId, name: names.get(userId) ?? '동료' }));
 }
 
 export async function fetchDirectThreads(workspaceId: string): Promise<DirectThread[]> {
@@ -22,8 +23,7 @@ export async function fetchDirectThreads(workspaceId: string): Promise<DirectThr
   if (error) throw error;
   const rows = data ?? [];
   const otherIds = rows.map((item) => item.user_low === user.id ? item.user_high : item.user_low);
-  const { data: users } = otherIds.length ? await supabase.from('users').select('id, nickname, username').in('id', otherIds) : { data: [] };
-  const names = new Map((users ?? []).map((item) => [item.id, item.nickname || item.username || '동료']));
+  const names = await fetchChatProfiles(otherIds);
   return rows.map((item) => { const otherUserId = item.user_low === user.id ? item.user_high : item.user_low; return { id: item.id, workspaceId: item.workspace_id, otherUserId, otherName: names.get(otherUserId) ?? '동료' }; });
 }
 

@@ -8,6 +8,7 @@ import Sidebar from './Sidebar';
 import MobileTabBar from './MobileTabBar';
 import SwipeNav from './SwipeNav';
 import PetWidget from './PetWidget';
+import { applyTheme, loadTheme } from '@/lib/theme';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -19,6 +20,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement;
+    applyTheme(loadTheme());
     root.dataset.density = localStorage.getItem('uiCompact') === 'true' ? 'compact' : '';
     root.dataset.contrast = localStorage.getItem('uiContrast') === 'true' ? 'high' : '';
     root.dataset.motion = localStorage.getItem('uiReducedMotion') === 'true' ? 'reduced' : '';

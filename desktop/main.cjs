@@ -11,7 +11,9 @@ function configuredUrl() {
   try {
     const url = new URL(value);
     return url.protocol === 'https:' ? url.toString() : null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function createWindow() {
@@ -20,7 +22,7 @@ function createWindow() {
     height: 920,
     minWidth: 980,
     minHeight: 680,
-    backgroundColor: '#f6f8fc',
+    backgroundColor: '#1a1d21',
     title: 'Commute Battle',
     autoHideMenuBar: true,
     webPreferences: {
@@ -34,20 +36,30 @@ function createWindow() {
   const appUrl = configuredUrl();
   if (appUrl) {
     const allowedOrigin = new URL(appUrl).origin;
-    win.webContents.setWindowOpenHandler(({ url }) => { void shell.openExternal(url); return { action: 'deny' }; });
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      void shell.openExternal(url);
+      return { action: 'deny' };
+    });
     win.webContents.on('will-navigate', (event, url) => {
-      if (new URL(url).origin !== allowedOrigin) { event.preventDefault(); void shell.openExternal(url); }
+      if (new URL(url).origin !== allowedOrigin) {
+        event.preventDefault();
+        void shell.openExternal(url);
+      }
     });
     void win.loadURL(appUrl);
   } else {
-    const html = `<!doctype html><meta charset="utf-8"><title>Commute Battle 설정</title><style>body{margin:0;display:grid;min-height:100vh;place-items:center;background:#f6f8fc;color:#172033;font:16px system-ui}.card{max-width:620px;padding:40px;border:1px solid #e2e8f0;border-radius:24px;background:white;box-shadow:0 12px 36px #0f172a12}h1{margin-top:0}code{display:block;padding:14px;border-radius:10px;background:#eff6ff;color:#1d4ed8}</style><div class="card"><h1>앱 주소 설정이 필요합니다</h1><p>패키징 전에 desktop/app-config.json에 배포된 HTTPS 주소를 입력해 주세요.</p><code>{ "appUrl": "https://your-app.example.com" }</code></div>`;
+    const html = `<!doctype html><html lang="ko"><meta charset="utf-8"><title>Commute Battle 설정</title><style>body{margin:0;display:grid;min-height:100vh;place-items:center;background:#f6f8fc;color:#172033;font:16px system-ui}.card{max-width:620px;padding:40px;border:1px solid #e2e8f0;background:white;box-shadow:0 12px 36px #0f172a12}h1{margin-top:0}code{display:block;padding:14px;background:#eff6ff;color:#1d4ed8}</style><div class="card"><h1>앱 주소 설정이 필요합니다</h1><p>패키징 전에 desktop/app-config.json에 배포된 HTTPS 주소를 입력해 주세요.</p><code>{ "appUrl": "https://your-app.example.com" }</code></div></html>`;
     void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   }
 }
 
 app.whenReady().then(() => {
   createWindow();
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
 });
 
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
