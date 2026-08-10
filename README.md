@@ -184,3 +184,20 @@ npm run build
 ## 라이선스
 
 현재 별도의 라이선스가 명시되어 있지 않습니다. 재사용이나 배포가 필요하다면 저장소 소유자에게 먼저 확인해 주세요.
+# 데스크톱 앱과 부서 채팅
+
+부서 채팅을 사용하려면 Supabase SQL Editor에서 `supabase/migrations/202608100001_department_chat.sql`을 실행합니다. 마이그레이션은 기본 부서 채널과 메시지 테이블, 인증 사용자 전용 RLS, Realtime publication을 생성합니다.
+
+Electron 개발 창은 다음 명령으로 Next 개발 서버와 함께 실행합니다.
+
+```bash
+npm run desktop
+```
+
+Windows 설치 파일을 만들기 전 `desktop/app-config.json`의 `appUrl`에 배포된 앱의 HTTPS 주소를 입력한 뒤 실행합니다.
+
+```bash
+npm run desktop:dist
+```
+
+설치 파일은 `dist-desktop/`에 생성됩니다. 웹과 PWA는 기존 방식대로 계속 사용할 수 있습니다.
