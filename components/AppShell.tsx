@@ -9,6 +9,7 @@ import MobileTabBar from './MobileTabBar';
 import SwipeNav from './SwipeNav';
 import PetWidget from './PetWidget';
 import { applyTheme, loadTheme } from '@/lib/theme';
+import ChatNotifications from './ChatNotifications';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -56,6 +57,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </main>
       <MobileTabBar />
       <PetWidget />
+      {session.user && <ChatNotifications userId={session.user.id} />}
     </div>
   );
 }

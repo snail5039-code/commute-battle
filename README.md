@@ -8,9 +8,10 @@
 
 ## 주요 기능
 
-- **간편 계정과 개인 설정**: 아이디·비밀번호·닉네임으로 가입하고 집/직장 주소, 근무 시각, 요일별 출근·재택·휴무 일정을 설정합니다.
+- **계정과 개인 설정**: 아이디·비밀번호·닉네임으로 가입하고 집/직장 주소, 근무 시각, 요일별 출근·재택·휴무 일정을 설정합니다. 설정에서 비밀번호 확인 후 계정과 관련 데이터를 삭제할 수 있습니다.
 - **워크스페이스 협업**: 팀 또는 부서별 워크스페이스를 만들고 초대 코드로 구성원을 초대합니다. 소유자·관리자·멤버 역할을 구분합니다.
 - **채널 및 개인 채팅**: 워크스페이스별 공지·일반·사용자 생성 채널에서 실시간으로 대화하고, 같은 워크스페이스 구성원끼리 1:1 개인 채팅을 이용합니다.
+- **채팅 알림**: 다른 사용자의 채널·개인 메시지를 실시간으로 감지해 앱과 운영체제 알림으로 안내하며, 알림을 누르면 해당 채팅 화면으로 이동합니다. 설정에서 채팅 알림을 끌 수 있습니다.
 - **관리자 승인과 근태 관리**: 관리자 권한 신청을 소유자 또는 관리자가 승인·거절하고, 초대된 워크스페이스 구성원의 출근·퇴근·재택·휴가 현황을 확인합니다.
 - **출근 위치 공유**: 구성원이 출근 기록을 시작하면서 명시적으로 동의한 경우에만 정확한 위치를 공유합니다. 공유는 중단하거나 퇴근 시 종료할 수 있고 오래된 위치는 자동으로 제외합니다.
 - **출퇴근 기록**: 출발과 도착 시각, 이동 시간, 정시 여부, 날씨, 획득 경험치를 기록합니다. 조퇴와 휴가도 별도로 관리합니다.
@@ -77,11 +78,14 @@ TMAP_APP_KEY=YOUR_TMAP_APP_KEY
 
 # AI 기능
 GEMINI_API_KEY=YOUR_GEMINI_API_KEY
+
+# 서버 전용: 회원탈퇴 시 Supabase Auth 계정 삭제
+SUPABASE_SERVICE_ROLE_KEY=YOUR_SUPABASE_SERVICE_ROLE_KEY
 # 선택: 미설정 시 gemini-3.5-flash
 # GEMINI_MODEL=gemini-3.5-flash
 ```
 
-`NEXT_PUBLIC_` 접두사가 붙은 값은 브라우저 번들에서 사용되는 공개 클라이언트 설정입니다. `GEMINI_API_KEY`, `ODSAY_API_KEY`, `TMAP_APP_KEY` 같은 서버 키에는 이 접두사를 붙이지 말고 저장소에도 커밋하지 마세요.
+`NEXT_PUBLIC_` 접두사가 붙은 값은 브라우저 번들에서 사용되는 공개 클라이언트 설정입니다. `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `ODSAY_API_KEY`, `TMAP_APP_KEY` 같은 서버 키에는 이 접두사를 붙이지 말고 저장소에도 커밋하지 마세요. 특히 Supabase service role 키는 회원탈퇴 서버 API에서만 사용하며 브라우저 코드에 노출하면 안 됩니다.
 
 Open-Meteo 날씨 API와 OSRM 폴백은 별도 키 없이 동작합니다. ODSAY 키가 없으면 대중교통 조회가 비활성화되고, TMAP 키가 없거나 호출에 실패하면 가능한 범위에서 OSRM 또는 참고용 예상 경로를 표시합니다. Gemini 키가 없으면 AI 보강 기능만 사용할 수 없습니다.
 
@@ -122,7 +126,9 @@ npm run dev
 5. 위치 공유에 동의하면 출근 중 정확한 위치가 해당 워크스페이스 관리자에게만 표시됩니다.
 6. 관리자는 구성원 근태 현황을 확인하고 관리자 권한 신청을 처리합니다.
 7. 이동 화면에서 경로를 조회하고 도착 기록을 완료해 경험치를 받습니다.
-8. 통계·퀘스트·배지·AI 비서에서 기록을 분석하고 주간 리캡을 공유합니다.
+8. 설정에서 채팅 등 알림 종류와 화면 테마를 선택합니다.
+9. 통계·퀘스트·배지·AI 비서에서 기록을 분석하고 주간 리캡을 공유합니다.
+10. 서비스를 더 이상 사용하지 않을 경우 설정의 계정 메뉴에서 현재 비밀번호와 확인 문구를 입력해 탈퇴합니다.
 
 ## 화면 경로
 
@@ -134,7 +140,7 @@ npm run dev
 | `/assistant` | AI 출퇴근 비서 |
 | `/badges` | 퀘스트, 배지, 캐릭터 보상 |
 | `/stats` | 캘린더와 출퇴근 통계 |
-| `/settings` | 주소, 근무 일정, 알림 등 설정 |
+| `/settings` | 주소, 근무 일정, 알림, 테마, 개인정보, 계정 및 회원탈퇴 설정 |
 | `/community` | 공지·자유게시판·의견수렴 |
 | `/chat` | 워크스페이스·채널 채팅과 초대 |
 | `/messages` | 워크스페이스 구성원 간 개인 채팅 |
@@ -146,14 +152,19 @@ npm run dev
 
 ```text
 app/
-├─ api/                 # AI, 날씨, 대중교통 서버 API
+├─ api/                 # 계정 삭제, AI, 날씨, 대중교통 서버 API
+├─ admin/               # 워크스페이스 구성원 근태·위치 관리
 ├─ assistant/           # AI 비서 화면
 ├─ badges/              # 배지·퀘스트 화면
+├─ chat/                # 워크스페이스 채널 채팅
 ├─ community/           # 커뮤니티 화면
+├─ install/             # 웹·PWA·Windows 앱 설치 안내
 ├─ map/                 # 경로 조회 화면
+├─ messages/            # 구성원 간 개인 채팅
 ├─ settings/            # 사용자 설정 화면
 └─ stats/               # 통계 화면
 components/             # 화면과 공용 React 컴포넌트
+desktop/                # Electron 메인 프로세스와 앱 설정
 lib/                    # 데이터, 통계, 경로, AI, 보상 도메인 로직
 public/                 # PWA 아이콘, 서비스 워커, 정적 파일
 supabase/migrations/    # Supabase 증분 SQL
@@ -164,6 +175,9 @@ schema.sql              # 기본 데이터베이스 스키마
 
 - [`components/CommuteButton.tsx`](./components/CommuteButton.tsx): 출퇴근·조퇴·휴가 기록
 - [`components/CommuteMapView.tsx`](./components/CommuteMapView.tsx): 지도, 위치, 경로 UI
+- [`components/ChatNotifications.tsx`](./components/ChatNotifications.tsx): 채널·개인 채팅 실시간 알림
+- [`components/DeleteAccountPanel.tsx`](./components/DeleteAccountPanel.tsx): 비밀번호 재확인과 회원탈퇴 UI
+- [`app/api/account/route.ts`](./app/api/account/route.ts): 워크스페이스 소유권 정리와 Auth 계정 삭제
 - [`app/api/route/transit/route.ts`](./app/api/route/transit/route.ts): ODSAY/TMAP/OSRM 경로 조합
 - [`app/api/ai/route.ts`](./app/api/ai/route.ts): Gemini 요청 검증, 캐시, 제한, 응답 처리
 - [`lib/stats.ts`](./lib/stats.ts): 출퇴근 통계 계산
@@ -177,6 +191,8 @@ schema.sql              # 기본 데이터베이스 스키마
 | `npm run lint` | ESLint 검사 |
 | `npm run build` | 프로덕션 빌드 및 타입 검사 |
 | `npm run start` | 빌드 결과를 프로덕션 모드로 실행 |
+| `npm run desktop` | Next 개발 서버와 Electron 개발 창 실행 |
+| `npm run desktop:dist` | Windows Electron 설치 파일 생성 |
 
 변경사항을 제출하기 전 아래 검사를 권장합니다.
 
@@ -191,6 +207,8 @@ npm run build
 - AI 요청은 서버 라우트를 통해서만 Gemini로 전달하며, 주소와 비밀값을 마스킹하고 허용 필드만 전송합니다.
 - AI API에는 요청 크기 제한, IP 기준 요청 제한, 짧은 응답 캐시, 타임아웃이 적용되어 있습니다.
 - 근무 일정, 일부 UI 설정, 경로 선호와 장착 액세서리 등은 브라우저 `localStorage`에 저장됩니다. 브라우저 데이터 삭제 또는 다른 기기 사용 시 동기화되지 않을 수 있습니다.
+- 회원탈퇴는 현재 비밀번호를 다시 확인한 뒤 서버 전용 service role 키로 Supabase Auth 계정을 삭제합니다. 탈퇴자가 소유한 워크스페이스는 관리자를 우선해 다른 구성원에게 이전하고, 남은 구성원이 없으면 삭제합니다.
+- 채팅 알림은 브라우저 알림 권한이 허용된 경우 운영체제 알림도 표시합니다. 권한이 없거나 설정에서 채팅 알림을 끄면 앱 외부 알림은 표시되지 않습니다.
 - 커뮤니티에는 RLS가 적용되어 있지만 다른 테이블의 정책 상태는 별도로 점검해야 합니다. 실제 사용자 데이터를 다루기 전 Supabase RLS와 권한을 운영 기준으로 강화하세요.
 - 위치와 경로 정보는 민감할 수 있습니다. API 로그, 화면 공유, 커뮤니티 게시물에 정확한 집 주소나 현재 위치가 노출되지 않도록 주의하세요.
 
@@ -200,19 +218,7 @@ npm run build
 
 프로덕션 배포는 GitHub/Vercel 연동을 사용하며 저장소에서 `vercel --prod`를 직접 실행하지 않습니다.
 
-## 라이선스
-
-현재 별도의 라이선스가 명시되어 있지 않습니다. 재사용이나 배포가 필요하다면 저장소 소유자에게 먼저 확인해 주세요.
-# 데스크톱 앱과 워크스페이스 채팅
-
-워크스페이스 채팅을 사용하려면 Supabase SQL Editor에서 마이그레이션을 번호 순서대로 실행합니다.
-
-1. `supabase/migrations/202608100001_department_chat.sql`
-2. `supabase/migrations/202608100002_workspaces.sql`
-3. `supabase/migrations/202608100003_admin_location.sql`
-4. `supabase/migrations/202608100004_direct_messages.sql`
-
-두 번째 마이그레이션은 초대 전용 워크스페이스, 멤버 역할, 채널, 메시지, 7일 초대 코드와 멤버십 기반 RLS를 생성합니다. 세 번째 마이그레이션은 관리자 승인, 출퇴근 현황, 동의 기반 실시간 위치와 관리자 열람 기록을 추가합니다. 네 번째 마이그레이션은 같은 워크스페이스 멤버 간 당사자 전용 개인 채팅을 추가합니다. 기존 부서 채팅 테이블은 호환성을 위해 삭제하지 않습니다.
+## 데스크톱 앱
 
 Electron 개발 창은 다음 명령으로 Next 개발 서버와 함께 실행합니다.
 
@@ -227,3 +233,13 @@ npm run desktop:dist
 ```
 
 설치 파일은 `dist-desktop/`에 생성됩니다. 웹과 PWA는 기존 방식대로 계속 사용할 수 있습니다.
+
+일반 사용자는 웹의 `/install` 페이지 또는 README 상단의 GitHub Release 링크에서 서명되지 않은 Windows 설치본을 내려받을 수 있습니다. 새 버전을 배포할 때는 빌드 결과물을 GitHub Release에 첨부하고 설치 페이지의 버전 및 다운로드 주소도 함께 갱신합니다.
+
+## 회원탈퇴 배포 설정
+
+회원탈퇴 API는 클라이언트에 노출할 수 없는 `SUPABASE_SERVICE_ROLE_KEY`를 사용합니다. 로컬 `.env.local`뿐 아니라 Vercel 프로젝트의 Environment Variables에도 같은 이름으로 등록한 뒤 재배포해야 합니다. 키는 Git 저장소, 브라우저 코드, 로그에 포함하지 마세요.
+
+## 라이선스
+
+현재 별도의 라이선스가 명시되어 있지 않습니다. 재사용이나 배포가 필요하다면 저장소 소유자에게 먼저 확인해 주세요.

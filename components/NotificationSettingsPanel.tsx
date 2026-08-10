@@ -19,6 +19,7 @@ const CATEGORY_LABELS: Record<NotificationCategory, { title: string; description
   weather: { title: '날씨 알림', description: '출발 전 날씨 변화를 알려드려요.' },
   eta: { title: '도착 예정 알림', description: '예상 도착 시각 변화를 알려드려요.' },
   quest: { title: '퀘스트 알림', description: '진행 중인 퀘스트를 잊지 않게 알려드려요.' },
+  chat: { title: '채팅 알림', description: '부서 채팅과 개인 채팅의 새 메시지를 알려드려요.' },
 };
 
 const EMPTY_CAPABILITIES: PushCapabilities = {

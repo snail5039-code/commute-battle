@@ -683,7 +683,7 @@ export default function CommuteMapView({ user, activeRecord, onArrive, onClose }
   const currentRouteFavorite = Boolean(currentRouteSignature && favorites.some((item) => item.signature === currentRouteSignature));
 
   const panel = (
-    <aside className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(15,23,42,0.12)] md:h-full md:w-[360px] md:flex-none md:border-l md:border-neutral-200 md:pb-4 md:shadow-none">
+    <aside className="map-route-panel flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(15,23,42,0.12)] md:h-full md:w-[360px] md:flex-none md:border-l md:border-neutral-200 md:pb-4 md:shadow-none">
       <div className="mb-3 flex w-fit rounded-full bg-neutral-100 p-1">
         {(['walk', 'transit'] as const).map((value) => <button key={value} onClick={() => changeMode(value)} aria-pressed={mode === value} className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold ${mode === value ? 'bg-neutral-900 text-white shadow-sm' : 'text-neutral-500'}`}>{value === 'walk' ? <Footprints size={13} /> : <Bus size={13} />}{value === 'walk' ? '도보' : '대중교통'}</button>)}
       </div>

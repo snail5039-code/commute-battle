@@ -1,6 +1,6 @@
 export const NOTIFICATION_SETTINGS_STORAGE_KEY = 'commute-battle:notification-settings';
 
-export type NotificationCategory = 'departure' | 'weather' | 'eta' | 'quest';
+export type NotificationCategory = 'departure' | 'weather' | 'eta' | 'quest' | 'chat';
 export type NotificationLeadMinutes = 5 | 10 | 15;
 
 export interface NotificationSettings {
@@ -9,7 +9,7 @@ export interface NotificationSettings {
 }
 
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
-  categories: { departure: true, weather: true, eta: true, quest: true },
+  categories: { departure: true, weather: true, eta: true, quest: true, chat: true },
   leadMinutes: 10,
 };
 
@@ -59,14 +59,21 @@ export function clearNotificationData(): void {
   resetRouteNotifications();
 }
 
-export function showOsNotification(title: string, body: string): void {
+export function showOsNotification(title: string, body: string, url?: string): void {
   if (!isNotificationSupported() || Notification.permission !== 'granted') return;
-  if (localStorage.getItem('petQuiet') === 'true') return;
 
   try {
-    new Notification(title, { body, icon: '/favicon.ico' });
+    const notification = new Notification(title, { body, icon: '/favicon.ico' });
+    if (url) notification.onclick = () => { window.focus(); window.location.assign(url); notification.close(); };
   } catch (error) {
     console.error('OS notification error:', error);
+    if ('serviceWorker' in navigator) {
+      void navigator.serviceWorker.ready.then((registration) => registration.showNotification(title, {
+        body,
+        icon: '/favicon.ico',
+        data: url ? { url } : undefined,
+      })).catch((cause) => console.error('Service worker notification error:', cause));
+    }
   }
 }
 
@@ -79,7 +86,6 @@ function deliveryKey(key: string) {
 
 export function showRouteNotificationOnce(key: string, title: string, body: string): boolean {
   if (!key || delivered.has(key) || getNotificationPermission() !== 'granted') return false;
-  if (localStorage.getItem('petQuiet') === 'true') return false;
   delivered.add(key);
   showOsNotification(title, body);
   return true;
@@ -87,11 +93,16 @@ export function showRouteNotificationOnce(key: string, title: string, body: stri
 
 export function showPersistentNotificationOnce(key: string, title: string, body: string): boolean {
   if (typeof window === 'undefined' || !key || getNotificationPermission() !== 'granted') return false;
-  if (localStorage.getItem('petQuiet') === 'true') return false;
   const storedKey = deliveryKey(key);
   if (localStorage.getItem(storedKey) === 'true') return false;
   localStorage.setItem(storedKey, 'true');
   showOsNotification(title, body);
+  return true;
+}
+
+export function showChatNotification(title: string, body: string, url: '/chat' | '/messages'): boolean {
+  if (!loadNotificationSettings().categories.chat || getNotificationPermission() !== 'granted') return false;
+  showOsNotification(title, body, url);
   return true;
 }
 

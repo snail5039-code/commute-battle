@@ -170,6 +170,28 @@ html[data-theme="white"] .chat-nav input::placeholder { color: var(--muted) !imp
 html[data-theme="white"] .chat-nav .chat-nav-search { background: var(--surface) !important; }
 html[data-theme="white"] .chat-nav .chat-nav-active { color: #ffffff !important; }
 
+/* 지도 오른쪽 경로 패널의 밝은 정보 카드를 어두운 테마 표면에 맞춥니다. */
+html[data-theme="dark"] .map-route-panel :where(.bg-neutral-50, .bg-neutral-100, .bg-blue-50, .bg-indigo-50),
+html[data-theme="plum"] .map-route-panel :where(.bg-neutral-50, .bg-neutral-100, .bg-blue-50, .bg-indigo-50) {
+  background-color: var(--surface-muted) !important;
+}
+html[data-theme="dark"] .map-route-panel :where([class*="bg-indigo-50"], [class*="bg-violet-50"]),
+html[data-theme="plum"] .map-route-panel :where([class*="bg-indigo-50"], [class*="bg-violet-50"]) {
+  background-color: var(--surface-muted) !important;
+}
+html[data-theme="dark"] .map-route-panel :where(.bg-sky-50, .bg-emerald-50, .bg-amber-50, .bg-orange-50, .bg-red-50),
+html[data-theme="plum"] .map-route-panel :where(.bg-sky-50, .bg-emerald-50, .bg-amber-50, .bg-orange-50, .bg-red-50) {
+  background-color: color-mix(in srgb, var(--surface) 82%, currentColor) !important;
+}
+html[data-theme="dark"] .map-route-panel :where(.text-indigo-950, .text-violet-950, .text-sky-800, .text-emerald-900, .text-amber-900, .text-orange-900, .text-red-800),
+html[data-theme="plum"] .map-route-panel :where(.text-indigo-950, .text-violet-950, .text-sky-800, .text-emerald-900, .text-amber-900, .text-orange-900, .text-red-800) {
+  color: var(--foreground) !important;
+}
+html[data-theme="dark"] .map-route-panel :where(.text-indigo-700, .text-indigo-600, .text-violet-800, .text-violet-700),
+html[data-theme="plum"] .map-route-panel :where(.text-indigo-700, .text-indigo-600, .text-violet-800, .text-violet-700) {
+  color: var(--brand) !important;
+}
+
 @media (max-width: 767px) {
   body { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
   .card { border-radius: .25rem; }

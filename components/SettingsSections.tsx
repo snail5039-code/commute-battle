@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { Bell, Bot, BriefcaseBusiness, Cat, MapPinned, Palette, Search, ShieldCheck, Trash2 } from 'lucide-react';
+import { Bell, Bot, BriefcaseBusiness, Cat, MapPinned, Palette, Search, ShieldCheck } from 'lucide-react';
 import { clearRouteLearning, isRouteLearningEnabled, setRouteLearningEnabled } from '@/lib/routeLearning';
 import { getRoutePreference, saveRoutePreference, type RoutePreference } from '@/lib/routePreferences';
 import { DEFAULT_PET_ID, PET_CATALOG, PET_IDS, readStoredPetId, storePetId, type PetId } from '@/lib/petCatalog';
@@ -14,6 +14,7 @@ import type { WorkSchedule, WorkdayMode } from '@/lib/types';
 import { mondayOfWeek } from '@/lib/date';
 import LogoutButton from './LogoutButton';
 import { loadTheme, saveTheme, type AppTheme } from '@/lib/theme';
+import DeleteAccountPanel from './DeleteAccountPanel';
 
 export type SettingsSectionId = 'work' | 'route' | 'appearance' | 'notifications' | 'pet' | 'ai-privacy' | 'account';
 
@@ -221,7 +222,7 @@ export default function SettingsSections(props: SettingsSectionsProps) {
 
       {active === 'ai-privacy' && <section id="ai-privacy" aria-labelledby="ai-title" className="card p-5 md:p-7"><h2 id="ai-title" className="text-lg font-bold">AI·개인정보</h2><div className="mt-4 rounded-xl bg-blue-50 p-4 text-sm leading-6 text-blue-950"><p className="font-bold">AI 답변의 근거</p><p>답변에는 사용한 통근 기록, 실시간 정보 여부, 추정값과 주의사항을 구분해 표시합니다. 피드백 집계는 이 브라우저에만 저장됩니다.</p></div><div className="mt-5"><ConfirmAction label="AI 근거·피드백 로컬 데이터 초기화" confirmLabel="AI 데이터 초기화" onConfirm={() => { clearAiLocalData(); setLocalStatus('이 기기의 AI 피드백 데이터를 초기화했습니다.'); }}/></div><div className="mt-8 border-t border-slate-200 pt-6"><h3 className="font-bold text-red-700">모든 로컬 설정 초기화</h3><p className="mt-1 text-xs leading-5 text-slate-500">근무 일정, 경로 선호·학습, 펫, AI 피드백과 화면 설정을 이 기기에서 지웁니다. 서버의 주소·통근 기록·계정은 유지됩니다.</p><div className="mt-4"><ConfirmAction tone="danger" label="모든 로컬 설정 초기화" confirmLabel="모두 초기화" onConfirm={resetAll}/></div></div></section>}
 
-      {active === 'account' && <section id="account" aria-labelledby="account-title" className="card p-5 md:p-7"><h2 id="account-title" className="text-lg font-bold">계정</h2><div className="mt-5"><LogoutButton /></div><div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4"><div className="flex items-start gap-3"><Trash2 className="mt-0.5 shrink-0 text-red-600" size={18}/><div><h3 className="text-sm font-bold text-red-800">계정 삭제</h3><p className="mt-1 text-xs leading-5 text-red-700">현재 앱에서는 계정 삭제를 직접 실행하지 않습니다. 삭제가 필요하면 서비스 관리자에게 계정 ID와 함께 요청하세요. 이 화면의 버튼이나 설정 초기화로 계정이 삭제되지는 않습니다.</p></div></div></div></section>}
+      {active === 'account' && <section id="account" aria-labelledby="account-title" className="card p-5 md:p-7"><h2 id="account-title" className="text-lg font-bold">계정</h2><div className="mt-5"><LogoutButton /></div><div className="mt-5"><DeleteAccountPanel userId={props.userId}/></div></section>}
       {localStatus && <p className="mt-4 text-xs text-emerald-700" role="status" aria-live="polite">{localStatus}</p>}
     </div>
   </div>;
