@@ -200,7 +200,7 @@ export default function AssistantPanel({ user, records }: { user: User; records:
   const suggestions = turns.length ? ['조금 더 쉽게 설명해 줘', '목적지는 회사야', '가장 빠른 방법으로 알려줘'] : STARTERS;
 
   return <div className="min-w-0 space-y-4">
-    <section className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-4 sm:p-5">
+    <section className="border border-[var(--border)] bg-[var(--surface-muted)] p-4 sm:p-5">
       <div className="flex items-start gap-3">
         <StatusIcon icon={Bot} tone="blue" size="lg" />
         <div className="min-w-0 flex-1">

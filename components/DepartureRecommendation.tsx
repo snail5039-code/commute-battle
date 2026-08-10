@@ -39,10 +39,10 @@ export default function DepartureRecommendation({ recommendation, compact = fals
     : `알림 허용 시 ${settings.leadMinutes > 5 ? `${settings.leadMinutes}분 전 · ` : ''}5분 전 · 출발 시 안내`;
 
   return (
-    <div className={`rounded-xl border border-indigo-100 bg-indigo-50/70 ${compact ? 'p-3' : 'p-3.5'}`}>
-      <div className="flex items-center justify-between"><span className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-700"><Clock3 size={14} />추천 출발</span><strong className="text-lg text-indigo-950">{recommendation.departureTime}</strong></div>
-      <p className="mt-1 text-[10px] text-indigo-700">예상 이동 {recommendation.tripMinutes}분 + 안전 여유 {recommendation.bufferMinutes}분</p>
-      <p className="mt-1 flex items-center gap-1 text-[10px] text-indigo-600"><Bell size={10} />{noticeText}</p>
+    <div className={`border border-[var(--border)] bg-[var(--surface-muted)] ${compact ? 'p-3' : 'p-3.5'}`}>
+      <div className="flex items-center justify-between"><span className="flex items-center gap-1.5 text-[11px] font-bold text-[var(--brand)]"><Clock3 size={14} />추천 출발</span><strong className="text-lg text-[var(--foreground)]">{recommendation.departureTime}</strong></div>
+      <p className="mt-1 text-[10px] text-[var(--brand)]">예상 이동 {recommendation.tripMinutes}분 + 안전 여유 {recommendation.bufferMinutes}분</p>
+      <p className="mt-1 flex items-center gap-1 text-[10px] text-[var(--muted)]"><Bell size={10} />{noticeText}</p>
       {!compact && <ul className="mt-2 space-y-1">{recommendation.reasons.map((reason) => <li key={reason} className="flex gap-1.5 text-[10px] text-slate-600"><ShieldCheck size={11} className="mt-0.5 shrink-0 text-indigo-500" />{reason}</li>)}</ul>}
     </div>
   );
