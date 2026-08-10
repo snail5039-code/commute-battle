@@ -184,9 +184,14 @@ npm run build
 ## 라이선스
 
 현재 별도의 라이선스가 명시되어 있지 않습니다. 재사용이나 배포가 필요하다면 저장소 소유자에게 먼저 확인해 주세요.
-# 데스크톱 앱과 부서 채팅
+# 데스크톱 앱과 워크스페이스 채팅
 
-부서 채팅을 사용하려면 Supabase SQL Editor에서 `supabase/migrations/202608100001_department_chat.sql`을 실행합니다. 마이그레이션은 기본 부서 채널과 메시지 테이블, 인증 사용자 전용 RLS, Realtime publication을 생성합니다.
+워크스페이스 채팅을 사용하려면 Supabase SQL Editor에서 마이그레이션을 번호 순서대로 실행합니다.
+
+1. `supabase/migrations/202608100001_department_chat.sql`
+2. `supabase/migrations/202608100002_workspaces.sql`
+
+두 번째 마이그레이션은 초대 전용 워크스페이스, 멤버 역할, 채널, 메시지, 7일 초대 코드와 멤버십 기반 RLS를 생성합니다. 기존 부서 채팅 테이블은 호환성을 위해 삭제하지 않습니다.
 
 Electron 개발 창은 다음 명령으로 Next 개발 서버와 함께 실행합니다.
 
