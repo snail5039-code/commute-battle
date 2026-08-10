@@ -74,14 +74,14 @@ export default function NotificationSettingsPanel() {
   }
 
   return (
-    <section className="rounded-2xl border border-neutral-200 bg-white p-4" aria-labelledby="notification-settings-title">
+    <section className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 md:p-5" aria-labelledby="notification-settings-title">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 id="notification-settings-title" className="flex items-center gap-2 text-sm font-bold text-neutral-900"><Bell size={16} /> 알림 설정</h2>
-          <p className="mt-1 text-xs leading-5 text-neutral-500">현재는 앱이 열린 동안의 로컬 알림만 지원합니다. 앱을 닫으면 알림이 오지 않습니다.</p>
+          <h2 id="notification-settings-title" className="flex items-center gap-2 text-sm font-bold text-slate-900"><span className="grid size-8 place-items-center rounded-xl bg-blue-100 text-blue-700"><Bell size={16} /></span> 알림 설정</h2>
+          <p className="mt-2 text-xs leading-5 text-slate-500">현재는 앱이 열린 동안의 로컬 알림만 지원합니다. 앱을 닫으면 알림이 오지 않습니다.</p>
         </div>
         {permission !== 'granted' && (
-          <button type="button" onClick={enableNotifications} disabled={!capabilities.notifications} className="shrink-0 rounded-lg bg-neutral-900 px-3 py-2 text-xs font-bold text-white disabled:bg-neutral-300">
+          <button type="button" onClick={enableNotifications} disabled={!capabilities.notifications} className="min-h-10 shrink-0 rounded-xl bg-blue-600 px-4 text-xs font-bold text-white shadow-sm shadow-blue-200 hover:bg-blue-700 disabled:bg-slate-300 disabled:shadow-none">
             알림 허용
           </button>
         )}
@@ -89,30 +89,30 @@ export default function NotificationSettingsPanel() {
 
       <div className="mt-4 space-y-2">
         {(Object.keys(CATEGORY_LABELS) as NotificationCategory[]).map((category) => (
-          <label key={category} className="flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-neutral-50 px-3 py-2.5">
-            <span><span className="block text-xs font-bold text-neutral-800">{CATEGORY_LABELS[category].title}</span><span className="text-[11px] text-neutral-500">{CATEGORY_LABELS[category].description}</span></span>
-            <input type="checkbox" checked={settings.categories[category]} onChange={() => updateCategory(category)} className="h-4 w-4 accent-emerald-600" />
+          <label key={category} className={`flex min-h-16 cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-colors ${settings.categories[category] ? 'border-blue-200 bg-blue-50/80' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+            <span><span className="block text-xs font-bold text-slate-800">{CATEGORY_LABELS[category].title}</span><span className="mt-0.5 block text-[11px] leading-5 text-slate-500">{CATEGORY_LABELS[category].description}</span></span>
+            <input type="checkbox" checked={settings.categories[category]} onChange={() => updateCategory(category)} className="size-5 shrink-0 accent-blue-600" />
           </label>
         ))}
       </div>
 
       <fieldset className="mt-4">
-        <legend className="text-xs font-bold text-neutral-700">출발 전 알림</legend>
+        <legend className="text-xs font-bold text-slate-700">출발 전 알림</legend>
         <div className="mt-2 grid grid-cols-3 gap-2">
           {([5, 10, 15] as NotificationLeadMinutes[]).map((minutes) => (
-            <button key={minutes} type="button" aria-pressed={settings.leadMinutes === minutes} onClick={() => updateLeadMinutes(minutes)} className={`rounded-lg border px-2 py-2 text-xs font-bold ${settings.leadMinutes === minutes ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-neutral-200 text-neutral-500'}`}>{minutes}분 전</button>
+            <button key={minutes} type="button" aria-pressed={settings.leadMinutes === minutes} onClick={() => updateLeadMinutes(minutes)} className={`min-h-11 rounded-xl border px-2 py-2 text-xs font-bold transition-colors ${settings.leadMinutes === minutes ? 'border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-200' : 'border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50'}`}>{minutes}분 전</button>
           ))}
         </div>
       </fieldset>
 
-      <div className="mt-4 rounded-xl bg-amber-50 p-3 text-[11px] leading-5 text-amber-900">
+      <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] leading-5 text-amber-900">
         <p className="font-bold">백그라운드 푸시는 아직 연결되지 않았어요.</p>
         <p>무료 Supabase Edge Function과 Web Push 서버를 연결한 뒤에만 브라우저를 닫은 상태의 알림을 지원할 수 있습니다.</p>
         <p className="mt-1 text-amber-700">기능 감지: 알림 {capabilities.notifications ? '지원' : '미지원'} · 서비스 워커 {capabilities.serviceWorker ? '지원' : '미지원'} · PushManager {capabilities.pushManager ? '지원' : '미지원'}</p>
       </div>
 
-      {message && <p role="status" className="mt-3 text-xs text-neutral-600">{message}</p>}
-      <button type="button" onClick={resetAll} className="mt-4 flex items-center gap-1.5 text-xs font-semibold text-neutral-500"><RotateCcw size={13} /> 구독 해제 및 로컬 데이터 초기화</button>
+      {message && <p role="status" className="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">{message}</p>}
+      <button type="button" onClick={resetAll} className="mt-4 flex min-h-10 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700"><RotateCcw size={13} /> 구독 해제 및 로컬 데이터 초기화</button>
       {permission === 'denied' && <p className="mt-2 flex items-center gap-1 text-[11px] text-red-600"><BellOff size={12} /> 알림이 차단되어 있습니다. 브라우저 사이트 설정에서 직접 허용해 주세요.</p>}
     </section>
   );
