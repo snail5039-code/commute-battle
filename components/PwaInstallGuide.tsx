@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { getPwaServerSnapshot, getPwaSnapshot, initializePwaInstall, requestPwaInstall, subscribePwa, type PwaPlatform } from '@/lib/pwa';
+import { Download, Monitor, Smartphone } from 'lucide-react';
 
 const guides: Array<{ platform: PwaPlatform; title: string; label: string; steps: string[] }> = [
   { platform: 'android', title: 'Android · Chrome', label: 'Android', steps: ['Chrome에서 이 페이지를 엽니다.', '상단의 설치하기 버튼 또는 브라우저 메뉴(⋮)를 누릅니다.', '‘앱 설치’ 또는 ‘홈 화면에 추가’를 선택합니다.'] },
@@ -32,6 +33,10 @@ export default function PwaInstallGuide() {
 
   return (
     <div className="space-y-5">
+      <section className="grid overflow-hidden rounded-2xl border border-slate-200 bg-white md:grid-cols-2">
+        <div className="border-b border-slate-200 p-5 md:border-b-0 md:border-r"><div className="flex items-center gap-2"><Smartphone size={19} className="text-blue-600"/><h2 className="font-extrabold">웹앱(PWA) 설치</h2></div><p className="mt-2 text-sm leading-6 text-slate-600">현재 바로 설치할 수 있는 방식입니다. 모바일 홈 화면이나 PC의 독립된 앱 창으로 실행됩니다.</p>{pwa.canPrompt && !pwa.installed ? <button type="button" onClick={() => void install()} className="mt-4 flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white"><Download size={17}/>이 기기에 지금 설치</button> : <p className="mt-4 text-xs font-bold text-slate-500">아래 현재 기기 안내에 따라 브라우저 설치 메뉴를 이용해 주세요.</p>}</div>
+        <div className="p-5"><div className="flex items-center gap-2"><Monitor size={19} className="text-violet-600"/><h2 className="font-extrabold">Windows 데스크톱 설치본</h2></div><p className="mt-2 text-sm leading-6 text-slate-600">Electron 전용 창은 준비되어 있지만 설치 파일은 배포 관리자가 빌드해 제공해야 합니다.</p><div className="mt-4 rounded-xl bg-slate-100 px-4 py-3 text-xs font-semibold text-slate-600">관리자 빌드 명령: <code className="font-mono text-violet-700">npm run desktop:dist</code><br/>생성 위치: <code className="font-mono text-violet-700">dist-desktop/</code></div></div>
+      </section>
       <section className={`rounded-2xl p-5 ${status.tone}`} aria-live="polite">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div><p className="text-sm font-bold">현재 상태 · {status.label}</p><p className="mt-1 text-sm opacity-80">{status.detail}</p></div>

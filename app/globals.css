@@ -1,16 +1,17 @@
+@import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
 @import "tailwindcss";
 
 :root {
-  --background: #f6f8fc;
-  --foreground: #172033;
+  --background: #f7f6f8;
+  --foreground: #1d1c1d;
   --surface: #ffffff;
-  --surface-muted: #f3f6fb;
-  --border: #e2e8f0;
-  --brand: #2563eb;
-  --brand-strong: #1d4ed8;
-  --muted: #6b7280;
-  --sidebar-width: 5.5rem;
-  --font-system-sans: "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", Arial, sans-serif;
+  --surface-muted: #f4f3f5;
+  --border: #d9d7da;
+  --brand: #611f69;
+  --brand-strong: #4a154b;
+  --muted: #616061;
+  --sidebar-width: 4rem;
+  --font-system-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 }
 
 @theme inline {
@@ -31,9 +32,7 @@ html[data-contrast="high"] {
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at 85% -10%, rgba(37, 99, 235, 0.07), transparent 28rem),
-    var(--background);
+  background: var(--background);
   color: var(--foreground);
   font-family: var(--font-system-sans);
   -webkit-font-smoothing: antialiased;
@@ -55,10 +54,10 @@ img { max-width: 100%; }
 ::selection { background: #dbeafe; color: #1e3a8a; }
 
 .card {
-  background: color-mix(in srgb, var(--surface) 96%, transparent);
-  border-radius: 1.125rem;
+  background: var(--surface);
+  border-radius: .375rem;
   border: 1px solid var(--border);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035), 0 10px 28px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 1px 2px rgba(29, 28, 29, 0.05);
 }
 
 .shell-content { max-width: 90rem; margin-inline: auto; }
@@ -85,11 +84,23 @@ img { max-width: 100%; }
 .group:hover > .sidebar-tooltip,
 .group:focus-visible > .sidebar-tooltip { opacity: 1; transform: translateX(0); }
 
-html[data-density="compact"] .card { border-radius: .875rem; }
+html[data-density="compact"] .card { border-radius: .25rem; }
+
+/* 업무용 메신저처럼 조밀하고 각진 공통 형태를 유지합니다. */
+:where(.rounded-3xl, .rounded-2xl, .rounded-xl) { border-radius: .375rem !important; }
+:where(.rounded-lg) { border-radius: .25rem !important; }
+:where([class*="rounded-["]) { border-radius: .375rem !important; }
+:where(.shadow-sm, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl) { box-shadow: 0 1px 3px rgba(29, 28, 29, .12) !important; }
+
+input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+  border-radius: .25rem !important;
+}
+
+button, a, input, select, textarea { transition-duration: 120ms; }
 
 @media (max-width: 767px) {
   body { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
-  .card { border-radius: 1rem; }
+  .card { border-radius: .25rem; }
 }
 html[data-motion="reduced"] *,
 html[data-motion="reduced"] *::before,
