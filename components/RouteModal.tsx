@@ -6,6 +6,7 @@ import { User, RouteGuideResponse } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
 import { DepartureRecommendation as Recommendation } from '@/lib/weather';
 import DepartureRecommendation from './DepartureRecommendation';
+import { locationShareKey } from '@/lib/workspaceAdmin';
 
 interface RouteModalProps {
   guide: RouteGuideResponse;
@@ -61,6 +62,7 @@ export default function RouteModal({
   recommendation,
 }: RouteModalProps) {
   const [loading, setLoading] = useState(false);
+  const [shareLocation, setShareLocation] = useState(false);
 
   const handleDeparture = async () => {
     setLoading(true);
@@ -79,6 +81,7 @@ export default function RouteModal({
       });
 
       if (error) throw error;
+      localStorage.setItem(locationShareKey(user.id), String(type === 'commute' && shareLocation));
       onDeparted();
     } catch (error) {
       console.error('Error starting commute:', error);
@@ -104,6 +107,8 @@ export default function RouteModal({
         </div>
 
         <DepartureRecommendation recommendation={recommendation} />
+
+        {type === 'commute' && <label className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950"><input type="checkbox" checked={shareLocation} onChange={(event) => setShareLocation(event.target.checked)} className="mt-0.5 size-4 accent-blue-600"/><span><strong className="block">출근 중 정확한 위치 공유</strong><span className="mt-1 block leading-5 text-blue-800">도착 전까지 내가 참여한 워크스페이스 관리자에게 현재 위치와 갱신 시각을 공유합니다. 언제든 대시보드에서 중단할 수 있습니다.</span></span></label>}
 
         <div className="grid grid-cols-2 gap-4">
           <div>

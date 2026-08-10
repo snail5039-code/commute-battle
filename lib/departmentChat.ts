@@ -14,10 +14,9 @@ export async function fetchChatWorkspaces(): Promise<ChatWorkspace[]> {
   const { data: memberships, error: memberError } = await supabase.from('chat_workspace_members').select('workspace_id, role').eq('user_id', user.id);
   if (memberError) throw memberError;
   const roleById = new Map((memberships ?? []).map((item) => [item.workspace_id, item.role as WorkspaceRole]));
-  if (!roleById.size) return [];
-  const { data, error } = await supabase.from('chat_workspaces').select('id, name, owner_id, created_at').in('id', [...roleById.keys()]).order('created_at');
+  const { data, error } = await supabase.from('chat_workspaces').select('id, name, owner_id, created_at').order('created_at');
   if (error) throw error;
-  return (data ?? []).map((item) => ({ id: item.id, name: item.name, ownerId: item.owner_id, role: roleById.get(item.id) ?? 'member', createdAt: item.created_at }));
+  return (data ?? []).map((item) => ({ id: item.id, name: item.name, ownerId: item.owner_id, role: roleById.get(item.id) ?? 'admin', createdAt: item.created_at }));
 }
 
 export async function fetchWorkspaceChannels(workspaceId: string): Promise<ChatChannel[]> {

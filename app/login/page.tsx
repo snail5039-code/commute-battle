@@ -20,6 +20,7 @@ export default function LoginPage() {
   const [loginId, setLoginId] = useState('');
   const [nickname, setNickname] = useState('');
   const [password, setPassword] = useState('');
+  const [requestAdmin, setRequestAdmin] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -46,7 +47,7 @@ export default function LoginPage() {
       if (mode === 'signup') {
         const { data, error: authError } = await supabase.auth.signUp({
           email: authEmail(normalizedId), password,
-          options: { data: { username: normalizedId, nickname: nickname.trim() } },
+          options: { data: { username: normalizedId, nickname: nickname.trim(), admin_requested: requestAdmin } },
         });
         if (authError) throw authError;
         if (!data.user || !data.session) {
@@ -84,6 +85,7 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="mt-6 space-y-4" noValidate>
           <label className="block text-xs font-bold text-slate-700">아이디<input value={loginId} onChange={(e) => { setLoginId(e.target.value); setError(''); }} autoComplete="username" placeholder={mode === 'signin' ? '아이디 입력' : '영문 소문자·숫자 4~20자'} className="mt-2 min-h-12 w-full rounded-xl border border-slate-200 px-3.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" required/></label>
           {mode === 'signup' && <label className="block text-xs font-bold text-slate-700">닉네임<input value={nickname} onChange={(e) => { setNickname(e.target.value); setError(''); }} autoComplete="nickname" placeholder="서비스에서 사용할 이름" maxLength={12} className="mt-2 min-h-12 w-full rounded-xl border border-slate-200 px-3.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" required/></label>}
+          {mode === 'signup' && <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600"><input type="checkbox" checked={requestAdmin} onChange={(e) => setRequestAdmin(e.target.checked)} className="mt-0.5 size-4 accent-blue-600"/><span><strong className="block text-slate-800">관리자 권한 신청</strong><span className="mt-1 block leading-5">워크스페이스에 참여하면 소유자의 승인을 받은 뒤 부서 현황을 볼 수 있습니다.</span></span></label>}
           <label className="block text-xs font-bold text-slate-700">비밀번호<span className="relative mt-2 block"><input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => { setPassword(e.target.value); setError(''); }} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder="8자 이상 입력" minLength={8} className="min-h-12 w-full rounded-xl border border-slate-200 px-3.5 pr-12 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" required/><button type="button" onClick={() => setShowPassword((show) => !show)} aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'} className="absolute inset-y-0 right-0 grid w-12 place-items-center text-slate-400">{showPassword ? <EyeOff size={17}/> : <Eye size={17}/>}</button></span></label>
           {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-semibold leading-5 text-red-700">{error}</p>}
           <button type="submit" disabled={loading} className="min-h-12 w-full rounded-xl bg-blue-600 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50">{loading ? '처리 중…' : mode === 'signin' ? '로그인' : '가입하고 시작하기'}</button>

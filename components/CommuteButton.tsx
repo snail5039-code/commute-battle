@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Clock3, Palmtree, Check, MapPin, TrainFront, House, PartyPopper, LoaderCircle } from 'lucide-react';
 import { User, CommuteRecord, RouteGuideResponse } from '@/lib/types';
@@ -17,6 +17,8 @@ import { getWorkdaySchedule, loadWorkSchedule, useStore } from '@/lib/store';
 import { useSelectedPetId } from '@/lib/petCatalog';
 import type { LevelProgress } from '@/lib/characterStages';
 import { localDateKey } from '@/lib/date';
+import { fetchChatWorkspaces } from '@/lib/departmentChat';
+import { locationShareKey, stopCommuteLocation, updateCommuteLocation } from '@/lib/workspaceAdmin';
 
 interface CommuteButtonProps {
   user: User;
@@ -71,6 +73,9 @@ export default function CommuteButton({
   const [weather, setWeather] = useState<WeatherResponse>(WEATHER_FALLBACK);
   const [weatherLoading, setWeatherLoading] = useState(true);
   const [celebration, setCelebration] = useState<LevelProgress | null>(null);
+  const [locationSharing, setLocationSharing] = useState(false);
+  const [locationError, setLocationError] = useState('');
+  const lastLocationSentAt = useRef(0);
   const storedSchedule = useStore((state) => state.workSchedule);
   const setStoredSchedule = useStore((state) => state.setWorkSchedule);
   const petId = useSelectedPetId();
@@ -140,6 +145,24 @@ export default function CommuteButton({
     void load();
     return () => controller.abort();
   }, [user.home_address]);
+
+  useEffect(() => {
+    if (activeRecord?.type !== 'commute' || localStorage.getItem(locationShareKey(user.id)) !== 'true') return;
+    let watchId: number | null = null;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setLocationSharing(true); setLocationError('');
+      void fetchChatWorkspaces().then((workspaces) => {
+        if (!active || !navigator.geolocation) throw new Error('이 기기에서 위치 기능을 사용할 수 없습니다.');
+        watchId = navigator.geolocation.watchPosition((position) => {
+          if (Date.now() - lastLocationSentAt.current < 30_000) return;
+          lastLocationSentAt.current = Date.now();
+          void Promise.all(workspaces.map((workspace) => updateCommuteLocation(workspace.id, position))).catch(() => setLocationError('위치 갱신에 실패했습니다.'));
+        }, () => setLocationError('정확한 위치 권한이 필요합니다.'), { enableHighAccuracy: true, maximumAge: 10_000, timeout: 15_000 });
+      }).catch((cause) => setLocationError(cause instanceof Error ? cause.message : '위치 공유를 시작하지 못했습니다.'));
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); if (watchId !== null) navigator.geolocation.clearWatch(watchId); };
+  }, [activeRecord?.id, activeRecord?.type, user.id]);
 
   const workday = getWorkdaySchedule(storedSchedule, now);
   const workStartMin = timeToMinutes(workday.startTime);
@@ -229,6 +252,9 @@ export default function CommuteButton({
 
     try {
       const progress = await recordArrival(user, records, activeRecord);
+      await stopCommuteLocation();
+      localStorage.setItem(locationShareKey(user.id), 'false');
+      setLocationSharing(false);
       onChange();
       if (progress.levelsGained > 0) setCelebration(progress);
     } catch (error) {
@@ -365,6 +391,8 @@ export default function CommuteButton({
         </div>
 
         {activeRecord && (
+          <div className="space-y-2.5">
+          {activeRecord.type === 'commute' && locationSharing && <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"><span className="flex items-center gap-2"><span className="size-2 animate-pulse rounded-full bg-emerald-500"/>정확한 위치 공유 중{locationError && ` · ${locationError}`}</span><button type="button" onClick={() => { void stopCommuteLocation(); localStorage.setItem(locationShareKey(user.id), 'false'); setLocationSharing(false); }} className="font-bold underline">중단</button></div>}
           <div className="flex gap-2.5">
             <button
               onClick={() => router.push('/map')}
@@ -381,6 +409,7 @@ export default function CommuteButton({
               <span className="flex size-7 items-center justify-center rounded-lg bg-white/15 text-white ring-1 ring-white/20">{loadingAction === 'arrive' ? <LoaderCircle className="animate-spin" size={16} /> : <PartyPopper size={16} />}</span>
               {loadingAction === 'arrive' ? '기록 중...' : '무사 도착!'}
             </button>
+          </div>
           </div>
         )}
 
