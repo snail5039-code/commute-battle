@@ -1,9 +1,13 @@
 import { supabase } from './supabase';
 import { fetchChatWorkspaces } from './departmentChat';
+import { captureLocation, locationParams, NO_LOCATION } from './geofence';
 import type { CommuteRecord } from './types';
 
 // 근태 기록은 모두 서버 RPC를 통해서만 만들어집니다. 브라우저가 시각을 정하면 PC 시계만 바꿔도
 // 출퇴근 시각을 조작할 수 있어서, 임금 근거로 쓸 수 있는 데이터가 되지 못합니다.
+//
+// 위치도 같은 이유로 서버가 판정합니다. 여기서는 근무시간 산정에 실제로 쓰이는 두 시점에만
+// 좌표를 실어 보냅니다 — 출근의 '도착'(근무 시작)과 퇴근의 '출발'(근무 종료).
 
 export type CorrectionStatus = 'pending' | 'approved' | 'rejected';
 
@@ -70,12 +74,24 @@ async function callRecordRpc(name: string, params: Record<string, unknown>): Pro
   return data as CommuteRecord;
 }
 
+// 출근의 '출발'은 집을 나서는 순간이라 사업장 밖이 정상입니다. 퇴근 출발만 위치를 확인합니다.
 export async function startAttendance(type: 'commute' | 'return'): Promise<CommuteRecord> {
-  return callRecordRpc('attendance_start', { record_type: type, target_workspace_id: await attendanceWorkspaceId() });
+  const fix = type === 'return' ? await captureLocation() : NO_LOCATION;
+  return callRecordRpc('attendance_start', {
+    record_type: type,
+    target_workspace_id: await attendanceWorkspaceId(),
+    ...locationParams(fix),
+  });
 }
 
-export async function finishAttendance(recordId: string, selfOnTime: boolean): Promise<CommuteRecord> {
-  return callRecordRpc('attendance_finish', { target_record_id: recordId, self_on_time: selfOnTime });
+// 반대로 퇴근의 '도착'은 집에 들어가는 순간이라 확인하지 않습니다.
+export async function finishAttendance(recordId: string, selfOnTime: boolean, recordType: CommuteRecord['type']): Promise<CommuteRecord> {
+  const fix = recordType === 'commute' ? await captureLocation() : NO_LOCATION;
+  return callRecordRpc('attendance_finish', {
+    target_record_id: recordId,
+    self_on_time: selfOnTime,
+    ...locationParams(fix),
+  });
 }
 
 export async function recordInstantAttendance(type: 'commute' | 'return'): Promise<CommuteRecord> {

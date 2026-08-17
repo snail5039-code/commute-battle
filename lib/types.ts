@@ -25,6 +25,13 @@ export interface CommuteRecord {
   is_on_time: boolean;
   weather_condition?: string;
   exp_gained: number;
+  // 위치 인증 결과. true=사업장 반경 안, false=미인증(관리자 확인 대상),
+  // null=검증 대상 아님(사업장 좌표 미설정·재택·워크스페이스 없는 개인 기록)
+  location_verified?: boolean | null;
+  location_status?: string | null;
+  location_distance_m?: number | null;
+  location_accuracy_m?: number | null;
+  location_checked_at?: string | null;
   created_at: string;
   updated_at: string;
 }

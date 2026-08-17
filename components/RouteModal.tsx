@@ -1,8 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import { ShieldAlert } from 'lucide-react';
 import { User, RouteGuideResponse } from '@/lib/types';
 import { startAttendance } from '@/lib/attendance';
+import { formatDistance, locationNotice, type LocationNotice } from '@/lib/geofence';
 import { DepartureRecommendation as Recommendation } from '@/lib/weather';
 import DepartureRecommendation from './DepartureRecommendation';
 import { locationShareKey } from '@/lib/workspaceAdmin';
@@ -62,13 +64,21 @@ export default function RouteModal({
 }: RouteModalProps) {
   const [loading, setLoading] = useState(false);
   const [shareLocation, setShareLocation] = useState(false);
+  // 퇴근 '출발' 시각이 곧 근무 종료 시각이라 서버가 사업장 반경을 확인합니다. 인증에 실패해도
+  // 기록은 남기고(현장에서 퇴근을 못 하면 더 곤란합니다), 대신 그 사실을 여기서 알립니다.
+  const [warning, setWarning] = useState<LocationNotice | null>(null);
 
   const handleDeparture = async () => {
     setLoading(true);
 
     try {
-      await startAttendance(type);
+      const record = await startAttendance(type);
       localStorage.setItem(locationShareKey(user.id), String(type === 'commute' && shareLocation));
+      const notice = locationNotice(record);
+      if (notice) {
+        setWarning(notice);
+        return;
+      }
       onDeparted();
     } catch (error) {
       console.error('Error starting commute:', error);
@@ -113,22 +123,43 @@ export default function RouteModal({
           </div>
         </div>
 
-        <div className="flex gap-3 pt-1">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2.5 px-4 bg-neutral-100 hover:bg-neutral-200 text-neutral-600 rounded-[12px] text-[13px] font-semibold transition-colors"
-          >
-            취소
-          </button>
+        {warning ? (
+          <div className="space-y-3 pt-1">
+            <div role="alert" className="flex items-start gap-2.5 rounded-[12px] border border-amber-200 bg-amber-50 px-3.5 py-3 text-amber-900">
+              <ShieldAlert size={16} className="mt-0.5 shrink-0" />
+              <div className="min-w-0 flex-1 text-[12px] leading-5">
+                <strong className="block text-[13px]">위치 미인증으로 기록되었습니다 · {warning.label}</strong>
+                <span className="mt-0.5 block">{warning.hint}</span>
+                {warning.distanceM !== null && (
+                  <span className="mt-0.5 block text-[11px] text-amber-700">사업장에서 약 {formatDistance(warning.distanceM)} 떨어진 곳에서 기록됨</span>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={onDeparted}
+              className="w-full py-2.5 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-[12px] text-[13px] font-semibold transition-colors"
+            >
+              확인
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-3 pt-1">
+            <button
+              onClick={onClose}
+              className="flex-1 py-2.5 px-4 bg-neutral-100 hover:bg-neutral-200 text-neutral-600 rounded-[12px] text-[13px] font-semibold transition-colors"
+            >
+              취소
+            </button>
 
-          <button
-            onClick={handleDeparture}
-            disabled={loading}
-            className="flex-1 py-2.5 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-[12px] text-[13px] font-semibold disabled:opacity-50 transition-colors"
-          >
-            {loading ? '기록 중...' : '출발'}
-          </button>
-        </div>
+            <button
+              onClick={handleDeparture}
+              disabled={loading}
+              className="flex-1 py-2.5 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-[12px] text-[13px] font-semibold disabled:opacity-50 transition-colors"
+            >
+              {loading ? '기록 중...' : '출발'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Clock3, Palmtree, Check, MapPin, TrainFront, House, PartyPopper, LoaderCircle } from 'lucide-react';
+import { Clock3, Palmtree, Check, MapPin, TrainFront, House, PartyPopper, LoaderCircle, ShieldAlert, X } from 'lucide-react';
 import { User, CommuteRecord, RouteGuideResponse } from '@/lib/types';
 import { generateRouteGuide } from '@/lib/gemini';
 import { recordArrival, recordInstantTrip } from '@/lib/commuteArrival';
 import { recordAttendanceEvent } from '@/lib/attendance';
+import { formatDistance, locationNotice, type LocationNotice } from '@/lib/geofence';
 import { isRemoteApprovedToday } from '@/lib/remoteWork';
 import RouteModal from './RouteModal';
 import WeatherCard from './WeatherCard';
@@ -74,6 +75,8 @@ export default function CommuteButton({
   const [weather, setWeather] = useState<WeatherResponse>(WEATHER_FALLBACK);
   const [weatherLoading, setWeatherLoading] = useState(true);
   const [celebration, setCelebration] = useState<LevelProgress | null>(null);
+  // 위치 인증에 실패한 채로 기록됐을 때만 뜹니다. 기록은 이미 저장돼 있고, 안내만 하는 배너입니다.
+  const [unverified, setUnverified] = useState<LocationNotice | null>(null);
   const [locationSharing, setLocationSharing] = useState(false);
   const [locationError, setLocationError] = useState('');
   const lastLocationSentAt = useRef(0);
@@ -223,6 +226,7 @@ export default function CommuteButton({
     setLoadingAction(type);
     try {
       const progress = await recordInstantTrip(user, type);
+      setUnverified(null);  // 재택은 승인제로 통제하므로 위치 인증 대상이 아닙니다.
       onChange();
       if (progress.levelsGained > 0) setCelebration(progress);
     } catch (error) {
@@ -259,7 +263,8 @@ export default function CommuteButton({
     setLoadingAction('arrive');
 
     try {
-      const progress = await recordArrival(user, records, activeRecord);
+      const { progress, record } = await recordArrival(user, records, activeRecord);
+      setUnverified(locationNotice(record));
       await stopCommuteLocation();
       localStorage.setItem(locationShareKey(user.id), 'false');
       setLocationSharing(false);
@@ -326,6 +331,20 @@ export default function CommuteButton({
         {workday.mode === 'off' && (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-center text-[13px] font-bold text-slate-500">
             오늘은 휴무입니다!
+          </div>
+        )}
+
+        {unverified && (
+          <div role="status" className="flex items-start gap-2.5 rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-amber-900">
+            <ShieldAlert size={16} className="mt-0.5 shrink-0" />
+            <div className="min-w-0 flex-1 text-[12px] leading-5">
+              <strong className="block text-[13px]">위치 미인증으로 기록되었습니다 · {unverified.label}</strong>
+              <span className="mt-0.5 block">{unverified.hint}</span>
+              {unverified.distanceM !== null && (
+                <span className="mt-0.5 block text-[11px] text-amber-700">사업장에서 약 {formatDistance(unverified.distanceM)} 떨어진 곳에서 기록됨</span>
+              )}
+            </div>
+            <button type="button" onClick={() => setUnverified(null)} aria-label="안내 닫기" className="shrink-0 rounded-md p-0.5 hover:bg-amber-100"><X size={14} /></button>
           </div>
         )}
 

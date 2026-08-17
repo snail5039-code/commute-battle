@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Download, LoaderCircle, RefreshCw, Settings2 } from 'lucide-react';
+import { AlertTriangle, Download, LoaderCircle, RefreshCw, Settings2, ShieldAlert } from 'lucide-react';
 import {
   attendanceCsv, downloadCsv, fetchAttendanceSummary, formatClock, formatHours, formatMinutes, monthRange,
   saveWorkPolicy, STATUS_LABEL, type AttendanceSummary, type WorkPolicy,
 } from '@/lib/workTime';
+import { formatDistance } from '@/lib/geofence';
+import OfficeLocationPicker from './admin/OfficeLocationPicker';
 
 const STATUS_STYLE: Record<string, string> = {
   complete: 'bg-slate-100 text-slate-600',
@@ -56,10 +58,13 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
       holiday: days.reduce((sum, day) => sum + day.holidayMinutes, 0),
       late: days.filter((day) => day.lateMinutes > 0).length,
       incomplete: days.filter((day) => day.status === 'incomplete').length,
+      unverified: days.filter((day) => day.locationUnverified > 0).length,
     };
   }, [summary]);
 
   const overLimitWeeks = summary?.weeks.filter((week) => week.overLimit) ?? [];
+  const unverifiedDays = summary?.days.filter((day) => day.locationUnverified > 0) ?? [];
+  const geofenceOn = summary?.policy.officeLat !== null && summary?.policy.officeLat !== undefined;
 
   const savePolicy = async () => {
     if (!draft) return;
@@ -114,16 +119,30 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
       </header>
 
       {policyOpen && draft && (
-        <div className="grid gap-3 border-b border-slate-200 bg-slate-50 p-5 sm:grid-cols-3">
-          {timeField('소정근로 시작', 'workStart')}
-          {timeField('소정근로 종료', 'workEnd')}
-          {numberField('1일 소정근로(분)', 'dailyRegularMinutes', '초과분은 연장근로로 계산됩니다')}
-          {numberField('1주 소정근로(분)', 'weeklyRegularMinutes', '기본 2400분 = 40시간')}
-          {numberField('1주 한도(분)', 'weeklyLimitMinutes', '기본 3120분 = 52시간, 넘으면 경고')}
-          {numberField('휴게(분)', 'breakMinutes', '8시간 이상 근무 시 차감, 4시간 이상은 최대 30분')}
-          {timeField('야간 시작', 'nightStart')}
-          {timeField('야간 종료', 'nightEnd')}
-          <div className="flex items-end gap-2">
+        <div className="space-y-4 border-b border-slate-200 bg-slate-50 p-5">
+          <div className="grid gap-3 sm:grid-cols-3">
+            {timeField('소정근로 시작', 'workStart')}
+            {timeField('소정근로 종료', 'workEnd')}
+            {numberField('1일 소정근로(분)', 'dailyRegularMinutes', '초과분은 연장근로로 계산됩니다')}
+            {numberField('1주 소정근로(분)', 'weeklyRegularMinutes', '기본 2400분 = 40시간')}
+            {numberField('1주 한도(분)', 'weeklyLimitMinutes', '기본 3120분 = 52시간, 넘으면 경고')}
+            {numberField('휴게(분)', 'breakMinutes', '8시간 이상 근무 시 차감, 4시간 이상은 최대 30분')}
+            {timeField('야간 시작', 'nightStart')}
+            {timeField('야간 종료', 'nightEnd')}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <OfficeLocationPicker
+              value={{ lat: draft.officeLat, lng: draft.officeLng, label: draft.officeLabel, radiusM: draft.officeRadiusM, accuracyM: draft.locationAccuracyM }}
+              onChange={(next) => setDraft((current) => current && {
+                ...current,
+                officeLat: next.lat, officeLng: next.lng, officeLabel: next.label,
+                officeRadiusM: next.radiusM, locationAccuracyM: next.accuracyM,
+              })}
+            />
+          </div>
+
+          <div className="flex gap-2">
             <button type="button" onClick={() => void savePolicy()} disabled={saving} className="h-10 flex-1 rounded-lg bg-blue-600 text-xs font-bold text-white disabled:opacity-50">{saving ? '저장 중…' : '정책 저장'}</button>
             <button type="button" onClick={() => { setPolicyOpen(false); setDraft(summary?.policy ?? null); }} className="h-10 rounded-lg border border-slate-300 px-3 text-xs font-bold">취소</button>
           </div>
@@ -134,7 +153,7 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
 
       {loading ? <div className="grid min-h-56 place-items-center"><LoaderCircle className="animate-spin text-[#611f69]" aria-label="불러오는 중" /></div> : !summary ? null : (
         <>
-          <div className="grid gap-3 border-b border-slate-200 p-5 sm:grid-cols-3 lg:grid-cols-6">
+          <div className={`grid gap-3 border-b border-slate-200 p-5 sm:grid-cols-3 ${geofenceOn ? 'lg:grid-cols-7' : 'lg:grid-cols-6'}`}>
             {[
               ['총 근무', formatMinutes(totals.worked)],
               ['연장', formatMinutes(totals.overtime)],
@@ -142,6 +161,7 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
               ['휴일', formatMinutes(totals.holiday)],
               ['지각 일수', `${totals.late}일`],
               ['기록 미완료', `${totals.incomplete}일`],
+              ...(geofenceOn ? [['위치 미인증', `${totals.unverified}일`]] : []),
             ].map(([label, value]) => (
               <div key={label} className="rounded-xl bg-slate-50 p-3">
                 <p className="text-[11px] font-bold text-slate-500">{label}</p>
@@ -149,6 +169,25 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
               </div>
             ))}
           </div>
+
+          {unverifiedDays.length > 0 && (
+            <div className="flex gap-2 border-b border-amber-200 bg-amber-50 px-5 py-3 text-xs text-amber-900">
+              <ShieldAlert size={15} className="mt-px shrink-0" />
+              <div className="min-w-0">
+                <strong className="block">위치가 확인되지 않은 출퇴근이 {unverifiedDays.reduce((sum, day) => sum + day.locationUnverified, 0)}건 있습니다.</strong>
+                <span className="block">사업장 반경 밖이거나 GPS를 잡지 못한 기록입니다. 기록 자체는 남아 있으니 확인 후 필요하면 근태 정정으로 바로잡아 주세요.</span>
+                <span className="mt-1 block">
+                  {unverifiedDays.slice(0, 8).map((day) => (
+                    <span key={`${day.userId}-${day.date}`} className="mr-3 inline-block">
+                      {day.nickname} · {day.date}
+                      {day.locationMaxDistanceM !== null && ` (최대 ${formatDistance(day.locationMaxDistanceM)})`}
+                    </span>
+                  ))}
+                  {unverifiedDays.length > 8 && <span className="text-amber-700">외 {unverifiedDays.length - 8}일</span>}
+                </span>
+              </div>
+            </div>
+          )}
 
           {overLimitWeeks.length > 0 && (
             <div className="flex gap-2 border-b border-amber-200 bg-amber-50 px-5 py-3 text-xs text-amber-900">
@@ -189,6 +228,7 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
                 <thead className="text-xs text-slate-500"><tr>
                   <th className="px-5 py-2">날짜</th><th className="px-4 py-2">구성원</th><th className="px-4 py-2">출근</th><th className="px-4 py-2">퇴근</th>
                   <th className="px-4 py-2">근무</th><th className="px-4 py-2">연장</th><th className="px-4 py-2">야간</th><th className="px-4 py-2">지각</th><th className="px-4 py-2">상태</th>
+                  {geofenceOn && <th className="px-4 py-2">위치</th>}
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {summary.days.map((day) => (
@@ -202,6 +242,14 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
                       <td className="px-4 py-2 text-xs">{day.nightMinutes ? formatMinutes(day.nightMinutes) : '-'}</td>
                       <td className="px-4 py-2 text-xs">{day.lateMinutes ? `${day.lateMinutes}분` : '-'}</td>
                       <td className="px-4 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${STATUS_STYLE[day.status]}`}>{STATUS_LABEL[day.status]}</span></td>
+                      {geofenceOn && (
+                        <td className="px-4 py-2 text-xs">
+                          {day.isRemote ? <span className="text-slate-400">재택</span>
+                            : day.locationUnverified > 0
+                              ? <span className="font-bold text-amber-800">미인증 {day.locationUnverified}건{day.locationMaxDistanceM !== null && ` · ${formatDistance(day.locationMaxDistanceM)}`}</span>
+                              : <span className="text-slate-400">-</span>}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -210,6 +258,7 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
           )}
 
           <p className="px-5 py-3 text-[11px] text-slate-400">
+            {adminMode && !geofenceOn && <span className="block font-bold text-amber-700">사업장 위치가 지정되지 않아 출근 위치 인증이 꺼져 있습니다 — &apos;근무 정책&apos;에서 지정하면 사무실 출퇴근을 반경 안에서만 인증합니다.</span>}
             공휴일 달력과 교대·유연근무제는 아직 반영되지 않습니다. 자정을 넘겨 퇴근한 날은 두 날짜로 나뉘어 &apos;기록 미완료&apos;로 표시될 수 있습니다.
           </p>
         </>

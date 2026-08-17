@@ -14,6 +14,12 @@ export interface WorkPolicy {
   breakMinutes: number;
   nightStart: string;
   nightEnd: string;
+  // 사업장 좌표가 비어 있으면 지오펜스를 쓰지 않는 워크스페이스입니다(모든 기록이 '검증 대상 아님').
+  officeLat: number | null;
+  officeLng: number | null;
+  officeLabel: string | null;
+  officeRadiusM: number;
+  locationAccuracyM: number;
   updatedAt: string | null;
 }
 
@@ -32,6 +38,9 @@ export interface AttendanceDay {
   earlyOutMinutes: number;
   isHoliday: boolean;
   isRemote: boolean;
+  // 그날 위치 인증에 실패한 출퇴근 기록 수(0이면 문제 없음). 검증 대상이 아닌 기록은 세지 않습니다.
+  locationUnverified: number;
+  locationMaxDistanceM: number | null;
   status: AttendanceStatus;
   openRecords: number;
 }
@@ -87,7 +96,7 @@ export function monthRange(base = new Date()) {
 }
 
 function rpcError(cause: { code?: string; message?: string }, fallback: string) {
-  if (cause.code === 'PGRST202') return new Error('근무시간 집계 서버 설정(202608170007 마이그레이션)이 아직 적용되지 않았습니다.');
+  if (cause.code === 'PGRST202') return new Error('근무시간·위치 인증 서버 설정(202608170007·202608170009 마이그레이션)이 아직 적용되지 않았습니다.');
   if (cause.code === '42501') return new Error('권한이 없습니다. 로그인 상태를 확인해 주세요.');
   return new Error(cause.message || fallback);
 }
@@ -114,13 +123,18 @@ export async function saveWorkPolicy(workspaceId: string, policy: Omit<WorkPolic
     new_break_minutes: policy.breakMinutes,
     new_night_start: policy.nightStart,
     new_night_end: policy.nightEnd,
+    new_office_lat: policy.officeLat,
+    new_office_lng: policy.officeLng,
+    new_office_label: policy.officeLabel,
+    new_office_radius_m: policy.officeRadiusM,
+    new_location_accuracy_m: policy.locationAccuracyM,
   });
   if (error) throw rpcError(error, '근무 정책을 저장하지 못했습니다.');
 }
 
 // 급여 담당자에게 넘기는 용도라 엑셀에서 바로 열리는 CSV로 만듭니다(BOM 포함).
 export function attendanceCsv(days: AttendanceDay[]) {
-  const header = ['이름', '날짜', '근무형태', '출근', '퇴근', '근무(분)', '휴게(분)', '연장(분)', '야간(분)', '휴일(분)', '지각(분)', '조기퇴근(분)', '상태'];
+  const header = ['이름', '날짜', '근무형태', '출근', '퇴근', '근무(분)', '휴게(분)', '연장(분)', '야간(분)', '휴일(분)', '지각(분)', '조기퇴근(분)', '상태', '위치인증'];
   const rows = days.map((day) => [
     day.nickname,
     day.date,
@@ -135,6 +149,7 @@ export function attendanceCsv(days: AttendanceDay[]) {
     day.lateMinutes,
     day.earlyOutMinutes,
     STATUS_LABEL[day.status],
+    day.locationUnverified > 0 ? `미인증 ${day.locationUnverified}건` : '',
   ]);
   const escape = (value: string | number) => {
     const text = String(value);

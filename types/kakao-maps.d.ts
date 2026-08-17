@@ -46,6 +46,22 @@ declare global {
       constructor(x: number, y: number);
     }
 
+    class Circle {
+      constructor(options: {
+        center: LatLng;
+        radius: number;
+        strokeWeight?: number;
+        strokeColor?: string;
+        strokeOpacity?: number;
+        strokeStyle?: string;
+        fillColor?: string;
+        fillOpacity?: number;
+      });
+      setMap(map: Map | null): void;
+      setPosition(latlng: LatLng): void;
+      setRadius(radius: number): void;
+    }
+
     class Polyline {
       constructor(options: {
         path: LatLng[];

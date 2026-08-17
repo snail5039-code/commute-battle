@@ -4,11 +4,16 @@ import { CommuteRecord, User } from './types';
 import { awardExpSafely } from './expReward';
 import { finishAttendance, recordInstantAttendance } from './attendance';
 
+export interface ArrivalResult {
+  progress: LevelProgress;
+  record: CommuteRecord;
+}
+
 export async function recordArrival(
   user: User,
   records: CommuteRecord[],
   activeRecord: CommuteRecord
-): Promise<LevelProgress> {
+): Promise<ArrivalResult> {
   const arrivedAt = new Date();
   const start = new Date(activeRecord.start_time!);
 
@@ -19,7 +24,8 @@ export async function recordArrival(
       ? isCommuteOnTime(records, arrivedAt)
       : isReturnOnTime(records, start);
 
-  const finished = await finishAttendance(activeRecord.id, onTime);
+  // 출근 기록의 도착 시각이 곧 근무 시작 시각이라, 이때 사업장 안에 있는지 서버가 확인합니다.
+  const finished = await finishAttendance(activeRecord.id, onTime, activeRecord.type);
   const expGained = finished.exp_gained;
 
   const progress = await awardExpSafely(user, expGained, (current) => ({
@@ -30,7 +36,7 @@ export async function recordArrival(
   }));
   if (!progress) throw new Error('Failed to update character EXP');
 
-  return progress;
+  return { progress, record: finished };
 }
 
 // 재택근무일에는 이동이 없으므로 출발/도착 단계를 나누지 않고 한 번에 완료 처리한다
