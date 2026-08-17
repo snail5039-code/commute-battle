@@ -1,9 +1,10 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { AtSign, Bell, Check, ChevronDown, Copy, Hash, Headphones, LoaderCircle, LogIn, MessageSquareText, Plus, Search, Send, UserPlus, X } from 'lucide-react';
+import { AtSign, Bell, Check, ChevronDown, Copy, Download, FileText, Hash, Headphones, LoaderCircle, LogIn, MessageSquareText, Paperclip, Plus, Search, Send, UserPlus, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { acceptWorkspaceInvite, CHAT_MESSAGE_MAX, createChannelMessage, createChatChannel, createChatWorkspace, createWorkspaceInvite, fetchChannelMessages, fetchChatWorkspaces, fetchWorkspaceChannels, hydrateRealtimeMessage, type ChatChannel, type ChatMessage, type ChatWorkspace } from '@/lib/departmentChat';
+import { acceptWorkspaceInvite, CHAT_FILE_MAX_BYTES, CHAT_MESSAGE_MAX, createChannelMessage, createChatChannel, createChatWorkspace, createWorkspaceInvite, fetchChannelMessages, fetchChatProfiles, fetchChatWorkspaces, fetchWorkspaceChannels, formatFileSize, hydrateRealtimeMessage, isImageAttachment, signChatFiles, uploadChatFile, type ChatChannel, type ChatMessage, type ChatWorkspace } from '@/lib/departmentChat';
+import HuddleBar from './HuddleBar';
 
 type Dialog = 'workspace' | 'channel' | 'invite' | 'join' | null;
 
@@ -23,7 +24,13 @@ export default function DepartmentChat() {
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [fileUrls, setFileUrls] = useState<Record<string, string>>({});
+  const [me, setMe] = useState<{ id: string; name: string } | null>(null);
+  const [huddleChannelId, setHuddleChannelId] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const signedPathsRef = useRef(new Set<string>());
   const workspace = workspaces.find((item) => item.id === workspaceId);
   const channel = channels.find((item) => item.id === channelId);
   const canManage = workspace?.role === 'owner' || workspace?.role === 'admin';
@@ -68,6 +75,27 @@ export default function DepartmentChat() {
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
+  useEffect(() => {
+    void supabase.auth.getUser().then(async ({ data }) => {
+      if (!data.user) return;
+      const names = await fetchChatProfiles([data.user.id]).catch(() => new Map<string, string>());
+      setMe({ id: data.user.id, name: names.get(data.user.id) ?? '동료' });
+    });
+  }, []);
+
+  // 비공개 버킷이라 첨부는 서명된 주소로만 열립니다. 이미 서명한 경로는 다시 요청하지 않습니다.
+  useEffect(() => {
+    const paths = messages.map((item) => item.attachment?.path).filter((path): path is string => Boolean(path) && !signedPathsRef.current.has(path as string));
+    if (!paths.length) return;
+    paths.forEach((path) => signedPathsRef.current.add(path));
+    void signChatFiles(paths)
+      .then((signed) => setFileUrls((current) => ({ ...current, ...Object.fromEntries(signed) })))
+      .catch(() => paths.forEach((path) => signedPathsRef.current.delete(path)));
+  }, [messages]);
+
+  // 채널을 옮기면 그 채널의 허들만 남기고 화면에서 내려갑니다(통화도 함께 정리됩니다).
+  const huddleOpen = Boolean(channelId) && huddleChannelId === channelId;
+
   const openDialog = (next: Dialog) => { setDialog(next); setFormValue(''); setGeneratedInvite(''); setCopied(false); setError(''); };
   const closeDialog = () => { if (!saving) setDialog(null); };
 
@@ -99,12 +127,41 @@ export default function DepartmentChat() {
     await navigator.clipboard.writeText(link); setCopied(true); window.setTimeout(() => setCopied(false), 1800);
   };
 
+  const pickFile = (next: File | null) => {
+    if (next && next.size > CHAT_FILE_MAX_BYTES) { setError(`파일은 ${formatFileSize(CHAT_FILE_MAX_BYTES)}까지 보낼 수 있습니다.`); return; }
+    setError(''); setFile(next);
+    if (!next && fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const submitMessage = async (event: FormEvent) => {
-    event.preventDefault(); if (!channelId || !content.trim()) return;
+    event.preventDefault(); if (!channelId || (!content.trim() && !file)) return;
     setSending(true); setError('');
-    try { const message = await createChannelMessage(channelId, content); setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message]); setContent(''); }
+    try {
+      const attachment = file && workspaceId ? await uploadChatFile(workspaceId, channelId, file) : null;
+      const message = await createChannelMessage(channelId, content, attachment);
+      setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message]);
+      setContent(''); pickFile(null);
+    }
     catch (cause) { setError(cause instanceof Error ? cause.message : '메시지를 보내지 못했습니다.'); }
     finally { setSending(false); }
+  };
+
+  const attachmentView = (message: ChatMessage) => {
+    if (!message.attachment) return null;
+    const { path, name, size } = message.attachment;
+    const url = fileUrls[path];
+    if (isImageAttachment(message.attachment)) {
+      if (!url) return <p className="mt-1.5 text-[11px] text-slate-400">이미지를 불러오는 중…</p>;
+      return <a href={url} target="_blank" rel="noreferrer" className="mt-1.5 block w-fit">
+        {/* eslint-disable-next-line @next/next/no-img-element -- 서명된 임시 주소라 next/image 도메인 설정 대상이 아닙니다. */}
+        <img src={url} alt={name} className="max-h-72 max-w-full border border-slate-200" />
+      </a>;
+    }
+    return <a href={url ?? '#'} target="_blank" rel="noreferrer" download={name} aria-disabled={!url} className={`mt-1.5 flex w-fit max-w-full items-center gap-2 border border-slate-300 px-3 py-2 ${url ? 'hover:bg-slate-50' : 'pointer-events-none opacity-60'}`}>
+      <FileText size={16} className="shrink-0 text-slate-500" />
+      <span className="min-w-0"><span className="block truncate text-[12px] font-bold text-slate-800">{name}</span><span className="text-[10px] text-slate-500">{formatFileSize(size)}</span></span>
+      <Download size={14} className="ml-2 shrink-0 text-slate-400" />
+    </a>;
   };
 
   return <div className="grid h-[calc(100dvh-4.5rem)] min-h-[38rem] overflow-hidden bg-white md:h-screen lg:grid-cols-[16.5rem_minmax(0,1fr)]">
@@ -125,12 +182,13 @@ export default function DepartmentChat() {
     </aside>
 
     <section className="flex min-h-0 min-w-0 flex-col bg-white">
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-4"><div className="min-w-0"><div className="flex items-center gap-1"><Hash size={18} className="text-slate-600"/><h1 className="truncate text-[15px] font-black text-slate-950">{channel?.name ?? '채널을 선택해 주세요'}</h1><ChevronDown size={15} className="text-slate-400"/></div><p className="mt-0.5 hidden truncate text-[11px] text-slate-500 sm:block">{channel?.description ?? '워크스페이스에서 채널을 선택해 주세요.'}</p></div><div className="flex items-center text-slate-500"><button type="button" aria-label="알림" className="grid size-9 place-items-center hover:bg-slate-100"><Bell size={17}/></button><button type="button" aria-label="허들" className="grid size-9 place-items-center hover:bg-slate-100"><Headphones size={17}/></button><button type="button" aria-label="채널 검색" className="grid size-9 place-items-center hover:bg-slate-100"><Search size={17}/></button></div></header>
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-4"><div className="min-w-0"><div className="flex items-center gap-1"><Hash size={18} className="text-slate-600"/><h1 className="truncate text-[15px] font-black text-slate-950">{channel?.name ?? '채널을 선택해 주세요'}</h1><ChevronDown size={15} className="text-slate-400"/></div><p className="mt-0.5 hidden truncate text-[11px] text-slate-500 sm:block">{channel?.description ?? '워크스페이스에서 채널을 선택해 주세요.'}</p></div><div className="flex items-center text-slate-500"><button type="button" aria-label="알림" className="grid size-9 place-items-center hover:bg-slate-100"><Bell size={17}/></button><button type="button" onClick={() => setHuddleChannelId(huddleOpen ? '' : channelId)} disabled={!channelId || !me} aria-pressed={huddleOpen} aria-label={huddleOpen ? '허들 나가기' : '허들 시작'} title={huddleOpen ? '허들 나가기' : '허들 시작 (1:1 음성 통화)'} className={`grid size-9 place-items-center disabled:cursor-not-allowed disabled:opacity-40 ${huddleOpen ? 'bg-[#007a5a] text-white' : 'hover:bg-slate-100'}`}><Headphones size={17}/></button><button type="button" aria-label="채널 검색" className="grid size-9 place-items-center hover:bg-slate-100"><Search size={17}/></button></div></header>
+      {huddleOpen && channelId && me && <HuddleBar channelId={channelId} channelName={channel?.name ?? '채널'} userId={me.id} userName={me.name} onClose={() => setHuddleChannelId('')} />}
       <div className="flex h-9 shrink-0 items-end gap-5 border-b border-slate-200 px-4 text-xs font-bold text-slate-500"><span className="flex h-full items-center border-b-2 border-[#611f69] text-slate-950"><MessageSquareText size={14} className="mr-1.5"/>메시지</span><span className="flex h-full items-center">파일 및 링크</span></div>
       <div className="min-h-0 flex-1 overflow-y-auto py-4" aria-live="polite">
-        {loading ? <div className="grid h-full place-items-center"><LoaderCircle className="animate-spin text-[#611f69]" aria-label="불러오는 중"/></div> : !channel ? <div className="grid h-full place-items-center px-6 text-center"><div><MessageSquareText className="mx-auto text-slate-300" size={42}/><h2 className="mt-4 text-lg font-black text-slate-900">대화를 시작할 공간을 선택하세요</h2><p className="mt-1 text-sm text-slate-500">새 워크스페이스를 만들거나 초대 코드로 참여할 수 있습니다.</p><div className="mt-5 flex justify-center gap-2"><button type="button" onClick={() => openDialog('workspace')} className="h-9 bg-[#611f69] px-3 text-xs font-bold text-white">워크스페이스 만들기</button><button type="button" onClick={() => openDialog('join')} className="h-9 border border-slate-300 px-3 text-xs font-bold">초대 코드 입력</button></div></div></div> : messages.length === 0 ? <div className="flex h-full items-end px-5 pb-6"><div><Hash size={38} className="text-slate-800"/><h2 className="mt-3 text-xl font-black text-slate-950">#{channel.name} 채널에 오신 것을 환영합니다</h2><p className="mt-1 text-sm text-slate-500">이 채널의 시작입니다. 워크스페이스 멤버들과 대화를 나눠보세요.</p></div></div> : <div>{messages.map((message, index) => { const grouped = index > 0 && messages[index - 1].authorId === message.authorId && Date.parse(message.createdAt) - Date.parse(messages[index - 1].createdAt) < 300000; return <article key={message.id} className={`group flex gap-2.5 px-4 hover:bg-[#f8f8f8] ${grouped ? 'py-0.5' : 'mt-2 py-1.5'}`}>{grouped ? <time className="w-9 shrink-0 pt-1 text-right text-[9px] text-slate-400 opacity-0 group-hover:opacity-100" dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</time> : <div className="grid size-9 shrink-0 place-items-center bg-[#2eb67d] text-sm font-black text-white">{message.author.slice(0, 1)}</div>}<div className="min-w-0 flex-1">{!grouped && <div className="flex flex-wrap items-baseline gap-2"><strong className="text-[14px] text-slate-950">{message.author}</strong><time className="text-[10px] text-slate-400" dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time></div>}<p className="whitespace-pre-wrap break-words text-[13px] leading-5 text-slate-800">{message.content}</p></div></article>; })}<div ref={endRef}/></div>}
+        {loading ? <div className="grid h-full place-items-center"><LoaderCircle className="animate-spin text-[#611f69]" aria-label="불러오는 중"/></div> : !channel ? <div className="grid h-full place-items-center px-6 text-center"><div><MessageSquareText className="mx-auto text-slate-300" size={42}/><h2 className="mt-4 text-lg font-black text-slate-900">대화를 시작할 공간을 선택하세요</h2><p className="mt-1 text-sm text-slate-500">새 워크스페이스를 만들거나 초대 코드로 참여할 수 있습니다.</p><div className="mt-5 flex justify-center gap-2"><button type="button" onClick={() => openDialog('workspace')} className="h-9 bg-[#611f69] px-3 text-xs font-bold text-white">워크스페이스 만들기</button><button type="button" onClick={() => openDialog('join')} className="h-9 border border-slate-300 px-3 text-xs font-bold">초대 코드 입력</button></div></div></div> : messages.length === 0 ? <div className="flex h-full items-end px-5 pb-6"><div><Hash size={38} className="text-slate-800"/><h2 className="mt-3 text-xl font-black text-slate-950">#{channel.name} 채널에 오신 것을 환영합니다</h2><p className="mt-1 text-sm text-slate-500">이 채널의 시작입니다. 워크스페이스 멤버들과 대화를 나눠보세요.</p></div></div> : <div>{messages.map((message, index) => { const grouped = index > 0 && messages[index - 1].authorId === message.authorId && Date.parse(message.createdAt) - Date.parse(messages[index - 1].createdAt) < 300000; return <article key={message.id} className={`group flex gap-2.5 px-4 hover:bg-[#f8f8f8] ${grouped ? 'py-0.5' : 'mt-2 py-1.5'}`}>{grouped ? <time className="w-9 shrink-0 pt-1 text-right text-[9px] text-slate-400 opacity-0 group-hover:opacity-100" dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</time> : <div className="grid size-9 shrink-0 place-items-center bg-[#2eb67d] text-sm font-black text-white">{message.author.slice(0, 1)}</div>}<div className="min-w-0 flex-1">{!grouped && <div className="flex flex-wrap items-baseline gap-2"><strong className="text-[14px] text-slate-950">{message.author}</strong><time className="text-[10px] text-slate-400" dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time></div>}{message.content && <p className="whitespace-pre-wrap break-words text-[13px] leading-5 text-slate-800">{message.content}</p>}{attachmentView(message)}</div></article>; })}<div ref={endRef}/></div>}
       </div>
-      <form onSubmit={(event) => void submitMessage(event)} className="shrink-0 px-4 pb-4"><div className="border border-slate-400 bg-white focus-within:border-slate-700 focus-within:shadow-[0_0_0_1px_#334155]"><textarea value={content} onChange={(event) => { setContent(event.target.value); setError(''); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} maxLength={CHAT_MESSAGE_MAX} rows={2} placeholder={channel ? `#${channel.name}에 메시지 보내기` : '채널을 선택해 주세요'} disabled={!channelId || sending} className="max-h-32 min-h-14 w-full resize-none border-0 px-3 py-2.5 text-[13px] outline-none disabled:bg-slate-50"/><div className="flex h-9 items-center justify-between border-t border-slate-100 px-1.5 text-slate-500"><div className="flex items-center"><span className="grid size-7 place-items-center text-base font-black">B</span><span className="grid size-7 place-items-center text-sm italic">I</span><span className="grid size-7 place-items-center"><AtSign size={15}/></span></div><button type="submit" disabled={!content.trim() || !channelId || sending} aria-label="메시지 보내기" className="grid size-7 place-items-center bg-[#007a5a] text-white disabled:bg-slate-200 disabled:text-slate-400"><Send size={15}/></button></div></div>{error && !dialog && <p role="alert" className="mt-1.5 text-xs font-semibold text-red-600">{error}</p>}<p className="mt-1 text-[10px] text-slate-400">Enter로 전송 · Shift+Enter로 줄바꿈</p></form>
+      <form onSubmit={(event) => void submitMessage(event)} className="shrink-0 px-4 pb-4"><div className="border border-slate-400 bg-white focus-within:border-slate-700 focus-within:shadow-[0_0_0_1px_#334155]"><textarea value={content} onChange={(event) => { setContent(event.target.value); setError(''); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} maxLength={CHAT_MESSAGE_MAX} rows={2} placeholder={channel ? `#${channel.name}에 메시지 보내기` : '채널을 선택해 주세요'} disabled={!channelId || sending} className="max-h-32 min-h-14 w-full resize-none border-0 px-3 py-2.5 text-[13px] outline-none disabled:bg-slate-50"/>{file && <div className="flex items-center gap-2 border-t border-slate-100 px-3 py-2"><FileText size={15} className="shrink-0 text-slate-500"/><span className="min-w-0 flex-1 truncate text-[11px] font-bold text-slate-700">{file.name}</span><span className="text-[10px] text-slate-500">{formatFileSize(file.size)}</span><button type="button" onClick={() => pickFile(null)} aria-label="첨부 파일 빼기" className="grid size-6 place-items-center text-slate-500 hover:bg-slate-100"><X size={13}/></button></div>}<div className="flex h-9 items-center justify-between border-t border-slate-100 px-1.5 text-slate-500"><div className="flex items-center"><span className="grid size-7 place-items-center text-base font-black">B</span><span className="grid size-7 place-items-center text-sm italic">I</span><span className="grid size-7 place-items-center"><AtSign size={15}/></span><input ref={fileInputRef} type="file" onChange={(event) => pickFile(event.target.files?.[0] ?? null)} className="hidden" aria-hidden="true" tabIndex={-1}/><button type="button" onClick={() => fileInputRef.current?.click()} disabled={!channelId || sending} aria-label="파일 첨부" title={`파일 첨부 (최대 ${formatFileSize(CHAT_FILE_MAX_BYTES)})`} className="grid size-7 place-items-center hover:bg-slate-100 disabled:opacity-40"><Paperclip size={15}/></button></div><button type="submit" disabled={(!content.trim() && !file) || !channelId || sending} aria-label="메시지 보내기" className="grid size-7 place-items-center bg-[#007a5a] text-white disabled:bg-slate-200 disabled:text-slate-400">{sending ? <LoaderCircle size={15} className="animate-spin"/> : <Send size={15}/>}</button></div></div>{error && !dialog && <p role="alert" className="mt-1.5 text-xs font-semibold text-red-600">{error}</p>}<p className="mt-1 text-[10px] text-slate-400">Enter로 전송 · Shift+Enter로 줄바꿈</p></form>
     </section>
 
     {dialog && <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/55 p-4" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) closeDialog(); }}><section role="dialog" aria-modal="true" aria-labelledby="chat-dialog-title" className="w-full max-w-md border border-slate-300 bg-white shadow-2xl"><header className="flex h-14 items-center justify-between border-b border-slate-200 px-5"><h2 id="chat-dialog-title" className="font-black text-slate-950">{dialog === 'workspace' ? '새 워크스페이스' : dialog === 'channel' ? '새 채널' : dialog === 'join' ? '워크스페이스 참여' : '멤버 초대'}</h2><button type="button" onClick={closeDialog} aria-label="닫기" className="grid size-8 place-items-center hover:bg-slate-100"><X size={18}/></button></header>

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, desktopCapturer, shell } = require('electron');
 const path = require('node:path');
 const config = require('./app-config.json');
 
@@ -33,8 +33,27 @@ function createWindow() {
     },
   });
 
+  // 허들(1:1 음성 통화 + 화면 공유)에 필요한 권한은 앱이 직접 여는 주소에서만 허용합니다.
+  const mediaOrigins = new Set([new URL(DEV_URL).origin]);
+  const media = new Set(['media', 'audioCapture', 'display-capture']);
+  const allowedMedia = (url) => { try { return mediaOrigins.has(new URL(url).origin); } catch { return false; } };
+
+  win.webContents.session.setPermissionRequestHandler((contents, permission, callback) => {
+    callback(media.has(permission) && allowedMedia(contents.getURL()));
+  });
+  win.webContents.session.setPermissionCheckHandler((contents, permission, origin) => (
+    media.has(permission) && allowedMedia(origin || contents?.getURL() || '')
+  ));
+  win.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
+    // Windows 11에서는 운영체제 화면 선택기를 띄우고, 실패하면 첫 번째 화면을 공유합니다.
+    desktopCapturer.getSources({ types: ['screen', 'window'] })
+      .then((sources) => callback(sources.length ? { video: sources[0] } : null))
+      .catch(() => callback(null));
+  }, { useSystemPicker: true });
+
   const appUrl = configuredUrl();
   if (appUrl) {
+    mediaOrigins.add(new URL(appUrl).origin);
     const allowedOrigin = new URL(appUrl).origin;
     win.webContents.setWindowOpenHandler(({ url }) => {
       void shell.openExternal(url);

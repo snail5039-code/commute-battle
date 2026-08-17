@@ -144,18 +144,24 @@ input:not([type="checkbox"]):not([type="radio"]), select, textarea {
 
 button, a, input, select, textarea { transition-duration: 120ms; }
 
-html[data-theme="dark"] :where(.bg-white),
-html[data-theme="plum"] :where(.bg-white) { background-color: var(--surface) !important; }
-html[data-theme="dark"] :where(.bg-slate-50, .bg-slate-100),
-html[data-theme="plum"] :where(.bg-slate-50, .bg-slate-100) { background-color: var(--surface-muted) !important; }
-html[data-theme="dark"] :where(.text-slate-950, .text-slate-900, .text-slate-800, .text-neutral-900, .text-neutral-800, .text-neutral-700),
-html[data-theme="plum"] :where(.text-slate-950, .text-slate-900, .text-slate-800, .text-neutral-900, .text-neutral-800, .text-neutral-700) { color: var(--foreground) !important; }
-html[data-theme="dark"] :where(.text-slate-700, .text-slate-600, .text-slate-500, .text-neutral-600, .text-neutral-500),
-html[data-theme="plum"] :where(.text-slate-700, .text-slate-600, .text-slate-500, .text-neutral-600, .text-neutral-500) { color: var(--muted) !important; }
-html[data-theme="dark"] :where(.border-slate-100, .border-slate-200, .border-slate-300),
-html[data-theme="plum"] :where(.border-slate-100, .border-slate-200, .border-slate-300) { border-color: var(--border) !important; }
-html[data-theme="dark"] input, html[data-theme="dark"] select, html[data-theme="dark"] textarea,
-html[data-theme="plum"] input, html[data-theme="plum"] select, html[data-theme="plum"] textarea { background-color: var(--surface); color: var(--foreground); border-color: var(--border); }
+/* 어두운 테마(dark·plum)의 회색 계열 보정.
+   hover 변형과 /투명도 변형까지 같이 잡아야, 마우스를 올렸을 때만 배경이 하얗게 떠서
+   밝은 글자색과 겹치는 현상을 막을 수 있습니다.
+   [class~="…"]는 클래스 토큰이 정확히 일치할 때만 걸리므로 bg-slate-50과 bg-slate-500이 섞이지 않습니다. */
+html:is([data-theme="dark"], [data-theme="plum"]) :where(.bg-white) { background-color: var(--surface) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where(
+  [class~="bg-slate-50"], [class*="bg-slate-50/"], [class~="bg-slate-100"], [class*="bg-slate-100/"],
+  [class~="bg-neutral-50"], [class*="bg-neutral-50/"], [class~="bg-neutral-100"], [class*="bg-neutral-100/"],
+  [class~="bg-[#f4eaf5]"], [class~="bg-[#f5f6f8]"]),
+html:is([data-theme="dark"], [data-theme="plum"]) :where(
+  [class~="hover:bg-slate-50"], [class~="hover:bg-slate-100"],
+  [class~="hover:bg-neutral-50"], [class~="hover:bg-neutral-100"], [class~="hover:bg-[#f8f8f8]"]):hover {
+  background-color: var(--surface-muted) !important;
+}
+html:is([data-theme="dark"], [data-theme="plum"]) :where(.text-slate-950, .text-slate-900, .text-slate-800, .text-neutral-900, .text-neutral-800, .text-neutral-700) { color: var(--foreground) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where(.text-slate-700, .text-slate-600, .text-slate-500, .text-neutral-600, .text-neutral-500) { color: var(--muted) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where(.border-slate-100, .border-slate-200, .border-slate-300, .border-neutral-100, .border-neutral-200, .border-neutral-300) { border-color: var(--border) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where(input, select, textarea) { background-color: var(--surface); color: var(--foreground); border-color: var(--border); }
 [class*="bg-[#3f0e40]"] { background-color: var(--nav-bg) !important; color: var(--nav-text) !important; }
 
 /* 화이트 테마의 채팅 사이드바는 배경뿐 아니라 기존 흰색 텍스트도 함께 전환합니다. */
@@ -170,27 +176,70 @@ html[data-theme="white"] .chat-nav input::placeholder { color: var(--muted) !imp
 html[data-theme="white"] .chat-nav .chat-nav-search { background: var(--surface) !important; }
 html[data-theme="white"] .chat-nav .chat-nav-active { color: #ffffff !important; }
 
-/* 지도 오른쪽 경로 패널의 밝은 정보 카드를 어두운 테마 표면에 맞춥니다. */
-html[data-theme="dark"] .map-route-panel :where(.bg-neutral-50, .bg-neutral-100, .bg-blue-50, .bg-indigo-50),
-html[data-theme="plum"] .map-route-panel :where(.bg-neutral-50, .bg-neutral-100, .bg-blue-50, .bg-indigo-50) {
-  background-color: var(--surface-muted) !important;
-}
-html[data-theme="dark"] .map-route-panel :where([class*="bg-indigo-50"], [class*="bg-violet-50"]),
-html[data-theme="plum"] .map-route-panel :where([class*="bg-indigo-50"], [class*="bg-violet-50"]) {
-  background-color: var(--surface-muted) !important;
-}
-html[data-theme="dark"] .map-route-panel :where(.bg-sky-50, .bg-emerald-50, .bg-amber-50, .bg-orange-50, .bg-red-50),
-html[data-theme="plum"] .map-route-panel :where(.bg-sky-50, .bg-emerald-50, .bg-amber-50, .bg-orange-50, .bg-red-50) {
-  background-color: color-mix(in srgb, var(--surface) 82%, currentColor) !important;
-}
-html[data-theme="dark"] .map-route-panel :where(.text-indigo-950, .text-violet-950, .text-sky-800, .text-emerald-900, .text-amber-900, .text-orange-900, .text-red-800),
-html[data-theme="plum"] .map-route-panel :where(.text-indigo-950, .text-violet-950, .text-sky-800, .text-emerald-900, .text-amber-900, .text-orange-900, .text-red-800) {
-  color: var(--foreground) !important;
-}
-html[data-theme="dark"] .map-route-panel :where(.text-indigo-700, .text-indigo-600, .text-violet-800, .text-violet-700),
-html[data-theme="plum"] .map-route-panel :where(.text-indigo-700, .text-indigo-600, .text-violet-800, .text-violet-700) {
-  color: var(--brand) !important;
-}
+/* 색조 유틸리티(파랑·초록·주황 등) 보정.
+   Tailwind의 밝은 색조 배경(bg-*-50/100)은 어두운 테마에서도 그대로 밝게 남는데, 그 위의 짙은
+   글자색은 위 규칙이나 여기서 밝게 바뀌기 때문에 그대로 두면 글씨가 아예 보이지 않습니다.
+   배경은 표면색에 색조만 살짝 섞어 어둡게 만들고, 짙은 글자색은 같은 계열의 밝은 톤으로 올려
+   의미(경고=주황, 정상=초록)를 유지한 채 대비를 확보합니다. */
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="bg-blue-50"], [class*="bg-blue-50/"], [class~="bg-blue-100"], [class*="bg-blue-100/"]),
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="hover:bg-blue-50"], [class~="hover:bg-blue-100"]):hover { background-color: color-mix(in srgb, var(--surface-muted) 88%, #3b82f6) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="border-blue-100"], [class~="border-blue-200"], [class~="border-blue-300"]) { border-color: color-mix(in srgb, var(--border) 60%, #3b82f6) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="text-blue-600"], [class~="text-blue-700"], [class~="text-blue-800"], [class~="text-blue-900"], [class~="text-blue-950"]) { color: #93c5fd !important; }
+
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="bg-indigo-50"], [class*="bg-indigo-50/"], [class~="bg-indigo-100"], [class*="bg-indigo-100/"]),
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="hover:bg-indigo-50"], [class~="hover:bg-indigo-100"]):hover { background-color: color-mix(in srgb, var(--surface-muted) 88%, #6366f1) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="border-indigo-100"], [class~="border-indigo-200"], [class~="border-indigo-300"]) { border-color: color-mix(in srgb, var(--border) 60%, #6366f1) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="text-indigo-600"], [class~="text-indigo-700"], [class~="text-indigo-800"], [class~="text-indigo-900"], [class~="text-indigo-950"]) { color: #a5b4fc !important; }
+
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="bg-violet-50"], [class*="bg-violet-50/"], [class~="bg-violet-100"], [class*="bg-violet-100/"]),
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="hover:bg-violet-50"], [class~="hover:bg-violet-100"]):hover { background-color: color-mix(in srgb, var(--surface-muted) 88%, #8b5cf6) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="border-violet-100"], [class~="border-violet-200"], [class~="border-violet-300"]) { border-color: color-mix(in srgb, var(--border) 60%, #8b5cf6) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="text-violet-600"], [class~="text-violet-700"], [class~="text-violet-800"], [class~="text-violet-900"], [class~="text-violet-950"]) { color: #c4b5fd !important; }
+
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="bg-sky-50"], [class*="bg-sky-50/"], [class~="bg-sky-100"], [class*="bg-sky-100/"]),
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="hover:bg-sky-50"], [class~="hover:bg-sky-100"]):hover { background-color: color-mix(in srgb, var(--surface-muted) 88%, #0ea5e9) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="border-sky-100"], [class~="border-sky-200"], [class~="border-sky-300"]) { border-color: color-mix(in srgb, var(--border) 60%, #0ea5e9) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="text-sky-600"], [class~="text-sky-700"], [class~="text-sky-800"], [class~="text-sky-900"], [class~="text-sky-950"]) { color: #7dd3fc !important; }
+
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="bg-cyan-50"], [class*="bg-cyan-50/"], [class~="bg-cyan-100"], [class*="bg-cyan-100/"]),
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="hover:bg-cyan-50"], [class~="hover:bg-cyan-100"]):hover { background-color: color-mix(in srgb, var(--surface-muted) 88%, #06b6d4) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="border-cyan-100"], [class~="border-cyan-200"], [class~="border-cyan-300"]) { border-color: color-mix(in srgb, var(--border) 60%, #06b6d4) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="text-cyan-600"], [class~="text-cyan-700"], [class~="text-cyan-800"], [class~="text-cyan-900"], [class~="text-cyan-950"]) { color: #67e8f9 !important; }
+
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="bg-teal-50"], [class*="bg-teal-50/"], [class~="bg-teal-100"], [class*="bg-teal-100/"]),
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="hover:bg-teal-50"], [class~="hover:bg-teal-100"]):hover { background-color: color-mix(in srgb, var(--surface-muted) 88%, #14b8a6) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="border-teal-100"], [class~="border-teal-200"], [class~="border-teal-300"]) { border-color: color-mix(in srgb, var(--border) 60%, #14b8a6) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="text-teal-600"], [class~="text-teal-700"], [class~="text-teal-800"], [class~="text-teal-900"], [class~="text-teal-950"]) { color: #5eead4 !important; }
+
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="bg-emerald-50"], [class*="bg-emerald-50/"], [class~="bg-emerald-100"], [class*="bg-emerald-100/"]),
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="hover:bg-emerald-50"], [class~="hover:bg-emerald-100"]):hover { background-color: color-mix(in srgb, var(--surface-muted) 88%, #10b981) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="border-emerald-100"], [class~="border-emerald-200"], [class~="border-emerald-300"]) { border-color: color-mix(in srgb, var(--border) 60%, #10b981) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="text-emerald-600"], [class~="text-emerald-700"], [class~="text-emerald-800"], [class~="text-emerald-900"], [class~="text-emerald-950"]) { color: #6ee7b7 !important; }
+
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="bg-amber-50"], [class*="bg-amber-50/"], [class~="bg-amber-100"], [class*="bg-amber-100/"]),
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="hover:bg-amber-50"], [class~="hover:bg-amber-100"]):hover { background-color: color-mix(in srgb, var(--surface-muted) 88%, #f59e0b) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="border-amber-100"], [class~="border-amber-200"], [class~="border-amber-300"]) { border-color: color-mix(in srgb, var(--border) 60%, #f59e0b) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="text-amber-600"], [class~="text-amber-700"], [class~="text-amber-800"], [class~="text-amber-900"], [class~="text-amber-950"]) { color: #fcd34d !important; }
+
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="bg-yellow-50"], [class*="bg-yellow-50/"], [class~="bg-yellow-100"], [class*="bg-yellow-100/"]),
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="hover:bg-yellow-50"], [class~="hover:bg-yellow-100"]):hover { background-color: color-mix(in srgb, var(--surface-muted) 88%, #eab308) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="border-yellow-100"], [class~="border-yellow-200"], [class~="border-yellow-300"]) { border-color: color-mix(in srgb, var(--border) 60%, #eab308) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="text-yellow-600"], [class~="text-yellow-700"], [class~="text-yellow-800"], [class~="text-yellow-900"], [class~="text-yellow-950"]) { color: #fde047 !important; }
+
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="bg-orange-50"], [class*="bg-orange-50/"], [class~="bg-orange-100"], [class*="bg-orange-100/"]),
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="hover:bg-orange-50"], [class~="hover:bg-orange-100"]):hover { background-color: color-mix(in srgb, var(--surface-muted) 88%, #f97316) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="border-orange-100"], [class~="border-orange-200"], [class~="border-orange-300"]) { border-color: color-mix(in srgb, var(--border) 60%, #f97316) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="text-orange-600"], [class~="text-orange-700"], [class~="text-orange-800"], [class~="text-orange-900"], [class~="text-orange-950"]) { color: #fdba74 !important; }
+
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="bg-red-50"], [class*="bg-red-50/"], [class~="bg-red-100"], [class*="bg-red-100/"]),
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="hover:bg-red-50"], [class~="hover:bg-red-100"]):hover { background-color: color-mix(in srgb, var(--surface-muted) 88%, #ef4444) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="border-red-100"], [class~="border-red-200"], [class~="border-red-300"]) { border-color: color-mix(in srgb, var(--border) 60%, #ef4444) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="text-red-600"], [class~="text-red-700"], [class~="text-red-800"], [class~="text-red-900"], [class~="text-red-950"]) { color: #fca5a5 !important; }
+
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="bg-rose-50"], [class*="bg-rose-50/"], [class~="bg-rose-100"], [class*="bg-rose-100/"]),
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="hover:bg-rose-50"], [class~="hover:bg-rose-100"]):hover { background-color: color-mix(in srgb, var(--surface-muted) 88%, #f43f5e) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="border-rose-100"], [class~="border-rose-200"], [class~="border-rose-300"]) { border-color: color-mix(in srgb, var(--border) 60%, #f43f5e) !important; }
+html:is([data-theme="dark"], [data-theme="plum"]) :where([class~="text-rose-600"], [class~="text-rose-700"], [class~="text-rose-800"], [class~="text-rose-900"], [class~="text-rose-950"]) { color: #fda4af !important; }
 
 @media (max-width: 767px) {
   body { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }

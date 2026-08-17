@@ -18,6 +18,31 @@ http://localhost:3000
 
 ---
 
+## ⚠️ 먼저 실행해야 하는 SQL (2026-08-17 추가)
+
+채널 파일 전송 기능은 새 마이그레이션을 적용해야 동작합니다. Supabase SQL Editor에서
+`supabase/migrations/202608170001_chat_attachments.sql` 전체를 한 번 실행하세요.
+
+- `chat_messages`에 `attachment_path/name/type/size` 컬럼 추가 (파일만 보낸 메시지는 본문이 비어 있어도 됨)
+- 비공개 Storage 버킷 `chat-files` 생성 + 워크스페이스 멤버만 읽기/업로드하는 정책
+- 첨부 경로 규칙: `<workspace_id>/<channel_id>/<임의키>` (RLS가 이 규칙으로 소속을 확인함)
+
+실행 전에는 파일 첨부 버튼을 눌러도 업로드 단계에서 오류가 납니다. 메시지·허들은 영향 없습니다.
+
+## 2026-08-17 세션에서 추가한 것
+
+- **어두운 테마 대비 보정** (`app/globals.css`): 밝은 색조 배경(`bg-*-50/100`) 위에 밝은 글자색이 찍혀
+  글씨가 안 보이던 문제를 색 계열별 규칙으로 일괄 수정. 지도 경로 패널 전용 하드코딩 규칙을 걷어내고
+  앱 전체에 적용되는 규칙으로 대체함 (경로 패널의 "현재 구간 …" 칩, 알림 설정 카테고리 제목 등)
+- **채널 파일 전송** (`lib/departmentChat.ts`, `components/chat/DepartmentChat.tsx`): 이미지+일반 파일,
+  10MB 제한, 이미지 인라인 미리보기, 비공개 버킷이라 1시간짜리 서명 URL로 열람
+- **허들(1:1 음성 통화 + 화면 공유)** (`lib/huddle.ts`, `components/chat/HuddleBar.tsx`): WebRTC 미디어 +
+  Supabase Realtime broadcast 시그널링, 무료 STUN만 사용(TURN 없음 → 대칭형 NAT에서는 실패할 수 있음).
+  Electron에서도 쓰도록 `desktop/main.cjs`에 마이크·화면공유 권한 핸들러 추가
+- 남은 확인: 실제 계정 2개로 채널 파일 업로드/다운로드와 허들 통화(브라우저·데스크톱 앱) 검증
+
+---
+
 ## 🔲 지금 당장 이어서 할 일 (다음 세션에 시작할 것)
 
 ### 1. 부서별 채팅 (팝업창) — 사용자가 요청, 설계까지 끝내고 구현은 다음 세션으로 미룸 (2026-08-08)

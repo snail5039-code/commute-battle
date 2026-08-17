@@ -6,12 +6,14 @@ import { fetchChatProfiles, fetchChatWorkspaces, fetchWorkspaceChannels } from '
 import { fetchDirectThreads } from '@/lib/directMessages';
 import { showChatNotification } from '@/lib/notifications';
 
-interface ChannelMessageRow { channel_id: string; author_id: string; content: string }
+interface ChannelMessageRow { channel_id: string; author_id: string; content: string; attachment_name?: string | null }
 interface DirectMessageRow { thread_id: string; author_id: string; content: string }
 
-function preview(content: string) {
+function preview(content: string, attachmentName?: string | null) {
   const clean = content.replace(/\s+/g, ' ').trim();
-  return clean.length > 90 ? `${clean.slice(0, 90)}…` : clean;
+  // 파일만 보낸 메시지는 본문이 비어 있어서 알림이 빈칸으로 뜨지 않도록 파일 이름을 대신 보여줍니다.
+  const text = clean || (attachmentName ? `📎 ${attachmentName}` : '새 메시지');
+  return text.length > 90 ? `${text.slice(0, 90)}…` : text;
 }
 
 export default function ChatNotifications({ userId }: { userId: string }) {
@@ -35,8 +37,8 @@ export default function ChatNotifications({ userId }: { userId: string }) {
           if (!active) return;
           const author = profiles.get(row.author_id) ?? '동료';
           const channel = channelNames.get(row.channel_id);
-          showChatNotification(channel ? `#${channel} · ${author}` : `부서 채팅 · ${author}`, preview(row.content), '/chat');
-        }).catch(() => showChatNotification('새 부서 채팅', preview(row.content), '/chat'));
+          showChatNotification(channel ? `#${channel} · ${author}` : `부서 채팅 · ${author}`, preview(row.content, row.attachment_name), '/chat');
+        }).catch(() => showChatNotification('새 부서 채팅', preview(row.content, row.attachment_name), '/chat'));
       }).subscribe();
 
     const directChannel = supabase.channel(`notifications:direct:${userId}`)
