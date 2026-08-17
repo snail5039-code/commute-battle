@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Clock3, Palmtree, Check, MapPin, TrainFront, House, PartyPopper, LoaderCircle, ShieldAlert, X } from 'lucide-react';
+import { Clock3, Palmtree, Check, MapPin, TrainFront, House, PartyPopper, LoaderCircle, ShieldAlert, X, CalendarDays } from 'lucide-react';
 import { User, CommuteRecord, RouteGuideResponse } from '@/lib/types';
 import { generateRouteGuide } from '@/lib/gemini';
 import { recordArrival, recordInstantTrip } from '@/lib/commuteArrival';
 import { recordAttendanceEvent } from '@/lib/attendance';
 import { formatDistance, locationNotice, type LocationNotice } from '@/lib/geofence';
 import { isRemoteApprovedToday } from '@/lib/remoteWork';
+import { fetchHolidayOn, type WorkHoliday } from '@/lib/holidays';
 import RouteModal from './RouteModal';
 import WeatherCard from './WeatherCard';
 import DepartureRecommendation from './DepartureRecommendation';
@@ -82,6 +83,8 @@ export default function CommuteButton({
   const lastLocationSentAt = useRef(0);
   // null = 아직 확인 중. 확인이 끝나기 전에는 기기 설정을 그대로 보여 줍니다.
   const [remoteApproved, setRemoteApproved] = useState<boolean | null>(null);
+  // 공휴일이어도 출근을 막지 않습니다. 휴일 근무는 실제로 있고, 집계에서 휴일근로로 잡히면 될 일입니다.
+  const [holiday, setHoliday] = useState<WorkHoliday | null>(null);
   const storedSchedule = useStore((state) => state.workSchedule);
   const setStoredSchedule = useStore((state) => state.setWorkSchedule);
   const petId = useSelectedPetId();
@@ -183,6 +186,16 @@ export default function CommuteButton({
     }, 0);
     return () => { active = false; window.clearTimeout(timer); };
   }, [today, records.length]);
+
+  // 공휴일은 서버(work_holidays)에만 있습니다. 버튼을 막지는 않고 안내만 합니다 —
+  // 휴일 출근은 실제로 있고, 집계가 알아서 휴일근로로 잡습니다.
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void fetchHolidayOn(activeWorkDate).then((found) => { if (active) setHoliday(found); });
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [activeWorkDate]);
 
   const workStartMin = timeToMinutes(workday.startTime);
   const workEndMin = timeToMinutes(workday.endTime);
@@ -331,6 +344,18 @@ export default function CommuteButton({
         {workday.mode === 'off' && (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-center text-[13px] font-bold text-slate-500">
             오늘은 휴무입니다!
+          </div>
+        )}
+
+        {holiday && workday.mode !== 'off' && (
+          <div className="flex items-start gap-2.5 rounded-2xl border border-rose-200 bg-rose-50 px-3.5 py-3 text-rose-900">
+            <CalendarDays size={16} className="mt-0.5 shrink-0" />
+            <p className="min-w-0 flex-1 text-[12px] leading-5">
+              <strong className="block text-[13px]">
+                {activeWorkDate === today ? '오늘은' : `${activeWorkDate}은(는)`} {holiday.name}입니다
+              </strong>
+              쉬는 날이지만 기록은 그대로 남길 수 있어요. 근무하면 <strong>휴일근로</strong>로 집계되고 지각은 따지지 않습니다.
+            </p>
           </div>
         )}
 

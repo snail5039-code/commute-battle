@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { attendanceWorkspaceId } from './attendance';
 
 // 공휴일은 세 경로로 들어옵니다. 저장은 셋 다 같은 RPC를 씁니다.
 //   public_api — 한국천문연구원 특일 정보 (/api/holidays)
@@ -167,4 +168,13 @@ export function parseHolidayCsv(text: string): CsvParseResult {
   }
   holidays.sort((a, b) => a.date.localeCompare(b.date));
   return { holidays, skipped, columns: { date: dateColumn, name: nameColumn } };
+}
+
+// 대시보드에서 "오늘이 공휴일인가"만 물어볼 때 씁니다. 휴일이어도 출근을 막지는 않습니다 —
+// 휴일 근무는 실제로 있고, 그건 휴일근로로 집계되면 될 일입니다. 여기서는 알려주기만 합니다.
+export async function fetchHolidayOn(date: string): Promise<WorkHoliday | null> {
+  const workspaceId = await attendanceWorkspaceId();
+  if (!workspaceId) return null;
+  const items = await fetchHolidays(workspaceId, date, date).catch(() => []);
+  return items[0] ?? null;
 }
