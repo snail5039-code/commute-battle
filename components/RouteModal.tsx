@@ -1,9 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { localDateKey } from '@/lib/date';
 import { User, RouteGuideResponse } from '@/lib/types';
-import { supabase } from '@/lib/supabase';
+import { startAttendance } from '@/lib/attendance';
 import { DepartureRecommendation as Recommendation } from '@/lib/weather';
 import DepartureRecommendation from './DepartureRecommendation';
 import { locationShareKey } from '@/lib/workspaceAdmin';
@@ -68,24 +67,12 @@ export default function RouteModal({
     setLoading(true);
 
     try {
-      const today = localDateKey(new Date());
-
-      const { error } = await supabase.from('commute_records').insert({
-        user_id: user.id,
-        date: today,
-        type,
-        commute_subtype: 'start',
-        start_time: new Date().toISOString(),
-        is_on_time: false,
-        exp_gained: 0,
-      });
-
-      if (error) throw error;
+      await startAttendance(type);
       localStorage.setItem(locationShareKey(user.id), String(type === 'commute' && shareLocation));
       onDeparted();
     } catch (error) {
       console.error('Error starting commute:', error);
-      alert('기록 저장에 실패했습니다');
+      alert(error instanceof Error ? error.message : '기록 저장에 실패했습니다');
     } finally {
       setLoading(false);
     }

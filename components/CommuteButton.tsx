@@ -6,7 +6,7 @@ import { Clock3, Palmtree, Check, MapPin, TrainFront, House, PartyPopper, Loader
 import { User, CommuteRecord, RouteGuideResponse } from '@/lib/types';
 import { generateRouteGuide } from '@/lib/gemini';
 import { recordArrival, recordInstantTrip } from '@/lib/commuteArrival';
-import { supabase } from '@/lib/supabase';
+import { recordAttendanceEvent } from '@/lib/attendance';
 import RouteModal from './RouteModal';
 import WeatherCard from './WeatherCard';
 import DepartureRecommendation from './DepartureRecommendation';
@@ -228,19 +228,11 @@ export default function CommuteButton({
   ) => {
     setLoadingAction(type);
     try {
-      const { error } = await supabase.from('commute_records').insert({
-        user_id: user.id,
-        date: today,
-        type,
-        is_on_time: false,
-        exp_gained: 0,
-      });
-
-      if (error) throw error;
+      await recordAttendanceEvent(type);
       onChange();
     } catch (error) {
       console.error('Error recording event:', error);
-      alert('기록에 실패했습니다');
+      alert(error instanceof Error ? error.message : '기록에 실패했습니다');
     } finally {
       setLoadingAction(null);
     }

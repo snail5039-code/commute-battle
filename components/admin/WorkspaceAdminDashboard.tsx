@@ -4,6 +4,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { Check, Clock3, ExternalLink, LoaderCircle, MapPin, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { fetchChatWorkspaces, type ChatWorkspace } from '@/lib/departmentChat';
 import { fetchAdminDashboard, reviewAdminRequest, type AdminDashboardData } from '@/lib/workspaceAdmin';
+import { fetchWorkspaceCorrections, reviewCorrection, type CorrectionRequest } from '@/lib/attendance';
+
+const TYPE_LABEL: Record<string, string> = { commute: '출근', return: '퇴근', early_leave: '조퇴', vacation: '휴가', sick: '병가', absence: '결근' };
+
+function clock(value: string | null) {
+  if (!value) return '미기록';
+  return new Date(value).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
 
 function statusLabel(type: string | null, endTime: string | null, hasLocation: boolean) {
   if (hasLocation) return '출근 중';
@@ -22,12 +30,28 @@ export default function WorkspaceAdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const [corrections, setCorrections] = useState<CorrectionRequest[]>([]);
+  const [correctionError, setCorrectionError] = useState('');
+
+  const loadCorrections = useCallback(async (id: string) => {
+    setCorrectionError('');
+    try { setCorrections(await fetchWorkspaceCorrections(id)); }
+    catch (cause) { setCorrections([]); setCorrectionError(cause instanceof Error ? cause.message : '정정 요청을 불러오지 못했습니다.'); }
+  }, []);
+
   const loadDashboard = useCallback(async (id: string) => {
     setLoading(true); setError('');
     try { setData(await fetchAdminDashboard(id)); }
     catch (cause) { setError(cause instanceof Error ? cause.message : '현황을 불러오지 못했습니다.'); }
     finally { setLoading(false); }
-  }, []);
+    await loadCorrections(id);
+  }, [loadCorrections]);
+
+  const decide = async (requestId: string, approve: boolean) => {
+    if (!workspaceId) return;
+    try { await reviewCorrection(requestId, approve); await loadCorrections(workspaceId); }
+    catch (cause) { setCorrectionError(cause instanceof Error ? cause.message : '정정 요청을 처리하지 못했습니다.'); }
+  };
 
   useEffect(() => {
     void fetchChatWorkspaces().then((items) => {
@@ -49,6 +73,30 @@ export default function WorkspaceAdminDashboard() {
     {!workspaceId && <div className="card p-8 text-center text-sm text-slate-500">소유자 또는 승인된 관리자 권한이 있는 워크스페이스가 없습니다.</div>}
     {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
     {workspaceId && data.requests.length > 0 && <section className="card overflow-hidden"><header className="border-b border-slate-200 px-5 py-4"><h2 className="font-black">관리자 승인 대기</h2><p className="mt-1 text-xs text-slate-500">워크스페이스 소유자와 관리자가 승인하거나 거절할 수 있습니다.</p></header><ul className="divide-y divide-slate-100">{data.requests.map((request) => <li key={request.userId} className="flex items-center justify-between gap-3 px-5 py-3"><div><strong className="text-sm">{request.nickname}</strong><p className="text-xs text-slate-400">{new Date(request.requestedAt).toLocaleString('ko-KR')} 신청</p></div><div className="flex gap-2"><button type="button" onClick={() => void review(request.userId, false)} className="flex h-9 items-center gap-1 rounded-lg border border-slate-300 px-3 text-xs font-bold"><X size={14}/>거절</button><button type="button" onClick={() => void review(request.userId, true)} className="flex h-9 items-center gap-1 rounded-lg bg-blue-600 px-3 text-xs font-bold text-white"><Check size={14}/>승인</button></div></li>)}</ul></section>}
+
+    {workspaceId && <section className="card overflow-hidden"><header className="border-b border-slate-200 px-5 py-4"><h2 className="font-black">근태 정정 요청</h2><p className="mt-1 text-xs text-slate-500">승인하면 기록이 바뀌고, 원본 값과 승인자가 변경 이력에 남습니다. 본인 기록은 다른 관리자만 승인할 수 있습니다.</p></header>
+      {correctionError && <p role="alert" className="border-b border-red-100 bg-red-50 px-5 py-3 text-sm font-semibold text-red-700">{correctionError}</p>}
+      {corrections.length === 0 && !correctionError ? <p className="px-5 py-6 text-center text-sm text-slate-500">검토할 정정 요청이 없습니다.</p> : <ul className="divide-y divide-slate-100">{corrections.map((item) => <li key={item.id} className="px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <strong className="text-sm">{item.nickname}</strong>
+            <span className="ml-2 text-xs text-slate-500">{item.currentDate} · {TYPE_LABEL[item.currentType ?? ''] ?? item.currentType}</span>
+            <p className="mt-1 text-xs text-slate-600">사유: {item.reason}</p>
+            <dl className="mt-2 grid gap-1 text-[11px] text-slate-600 sm:grid-cols-2">
+              <div><dt className="inline font-bold">현재</dt> <dd className="inline">{clock(item.currentStart)} → {clock(item.currentEnd)}</dd></div>
+              <div><dt className="inline font-bold text-blue-700">요청</dt> <dd className="inline text-blue-700">{clock(item.requestedStart ?? item.currentStart)} → {clock(item.requestedEnd ?? item.currentEnd)}</dd></div>
+            </dl>
+            <p className="mt-1 text-[10px] text-slate-400">{new Date(item.createdAt).toLocaleString('ko-KR')} 요청</p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            {item.isMine ? <span className="rounded-lg bg-slate-100 px-3 py-2 text-[11px] font-bold text-slate-500">본인 요청 · 다른 관리자를 초대해 승인받아야 합니다</span> : <>
+              <button type="button" onClick={() => void decide(item.id, false)} className="flex h-9 items-center gap-1 rounded-lg border border-slate-300 px-3 text-xs font-bold"><X size={14}/>반려</button>
+              <button type="button" onClick={() => void decide(item.id, true)} className="flex h-9 items-center gap-1 rounded-lg bg-blue-600 px-3 text-xs font-bold text-white"><Check size={14}/>승인</button>
+            </>}
+          </div>
+        </div>
+      </li>)}</ul>}
+    </section>}
 
     {workspaceId && <section className="card overflow-hidden"><header className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div><h2 className="font-black">오늘의 부서원 현황</h2><p className="mt-1 text-xs text-slate-500">정확한 위치는 직원이 출근 시 동의한 동안에만 표시됩니다.</p></div><span className="text-xs font-bold text-slate-500">{data.members.length}명</span></header>{loading ? <div className="grid min-h-56 place-items-center"><LoaderCircle className="animate-spin text-blue-600"/></div> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="px-5 py-3">부서원</th><th className="px-4 py-3">권한</th><th className="px-4 py-3">출퇴근 상태</th><th className="px-4 py-3">시작 시각</th><th className="px-4 py-3">현재 위치</th><th className="px-4 py-3">갱신</th></tr></thead><tbody className="divide-y divide-slate-100">{data.members.map((member) => { const sharing = member.latitude !== null && member.longitude !== null; return <tr key={member.userId} className="hover:bg-slate-50"><td className="px-5 py-3 font-bold text-slate-950">{member.nickname}</td><td className="px-4 py-3 text-xs text-slate-500">{member.role === 'owner' ? '소유자' : member.role === 'admin' ? '관리자' : '멤버'}</td><td className="px-4 py-3"><span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-bold ${sharing ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{sharing && <span className="size-1.5 animate-pulse rounded-full bg-emerald-500"/>}{statusLabel(member.commuteType, member.endTime, sharing)}</span></td><td className="px-4 py-3 text-xs text-slate-500">{member.startTime ? new Date(member.startTime).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-'}</td><td className="px-4 py-3">{sharing ? <a href={`https://map.kakao.com/link/map/${encodeURIComponent(member.nickname)},${member.latitude},${member.longitude}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-blue-700"><MapPin size={14}/>{member.latitude?.toFixed(6)}, {member.longitude?.toFixed(6)}<ExternalLink size={12}/></a> : <span className="text-xs text-slate-400">공유 안 함</span>}</td><td className="px-4 py-3 text-xs text-slate-500">{member.locationUpdatedAt ? <span className="flex items-center gap-1"><Clock3 size={13}/>{new Date(member.locationUpdatedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span> : '-'}</td></tr>; })}</tbody></table></div>}</section>}
   </div>;

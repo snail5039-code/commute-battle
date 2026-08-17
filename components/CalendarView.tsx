@@ -1,9 +1,11 @@
 'use client';
 
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, RotateCcw, Trash2 } from 'lucide-react';
 import { CommuteRecord } from '@/lib/types';
 import { loadExcludedRecordIds, setRecordExcluded } from '@/lib/recordOverrides';
+import { fetchMyCorrections, type MyCorrectionRequest } from '@/lib/attendance';
+import AttendanceCorrection from './AttendanceCorrection';
 
 const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
 const LABELS: Record<CommuteRecord['type'], string> = { commute: '출근', return: '퇴근', early_leave: '조퇴', vacation: '휴가', sick: '병가', absence: '결근' };
@@ -41,6 +43,15 @@ export default function CalendarView({ records }: { records: CommuteRecord[] }) 
 
   const selectedRecords = records.filter((r) => r.date === selected);
   const toggle = (id: string, value: boolean) => setExcluded(new Set(setRecordExcluded(userId, id, value)));
+
+  // 기록별 최신 정정 요청 상태. 목록이 최신순이라 먼저 담긴 값이 가장 최근 요청입니다.
+  const [corrections, setCorrections] = useState<Map<string, MyCorrectionRequest>>(new Map());
+  const loadCorrections = useCallback(async () => {
+    const items = await fetchMyCorrections().catch(() => []);
+    setCorrections(new Map(items.reduceRight<[string, MyCorrectionRequest][]>((acc, item) => { acc.push([item.recordId, item]); return acc; }, [])));
+  }, []);
+  // useAppData와 같은 방식으로 렌더 직후에 불러옵니다(효과 본문에서 바로 setState 하지 않도록).
+  useEffect(() => { const timer = setTimeout(() => { void loadCorrections(); }, 0); return () => clearTimeout(timer); }, [loadCorrections]);
 
   return (
     <section className="card overflow-hidden">
@@ -84,6 +95,7 @@ export default function CalendarView({ records }: { records: CommuteRecord[] }) 
                       {isExcluded ? <><RotateCcw size={13} />통계에 복구</> : <><Trash2 size={13} />통계에서 제외</>}
                     </button>
                     {isExcluded && <p className="mt-1 text-[11px] text-slate-500">이 기기의 통계에서만 제외되며 원본 기록은 유지됩니다.</p>}
+                    <AttendanceCorrection record={r} correction={corrections.get(r.id)} onRequested={() => void loadCorrections()} />
                   </li>
                 );
               })}
