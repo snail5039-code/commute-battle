@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, RotateCcw, Trash2 } from 'lucide-react';
+import { CalendarDays, EyeOff, RotateCcw } from 'lucide-react';
 import { CommuteRecord } from '@/lib/types';
 import { loadExcludedRecordIds, setRecordExcluded } from '@/lib/recordOverrides';
 import { fetchMyCorrections, type MyCorrectionRequest } from '@/lib/attendance';
@@ -91,10 +91,16 @@ export default function CalendarView({ records }: { records: CommuteRecord[] }) 
                       <strong className="text-sm">{LABELS[r.type]}</strong>
                       <span className="text-xs text-slate-500">{time(r.start_time)} → {time(r.end_time)}</span>
                     </div>
-                    <button onClick={() => toggle(r.id, !isExcluded)} className={`mt-3 flex items-center gap-1 text-xs font-semibold ${isExcluded ? 'text-blue-700' : 'text-rose-600'}`}>
-                      {isExcluded ? <><RotateCcw size={13} />통계에 복구</> : <><Trash2 size={13} />통계에서 제외</>}
+                    {/* 이 버튼은 이 기기의 개인 통계 화면(/stats)만 가립니다. 근태 집계와 급여 근거가 되는
+                        서버 계산(get_attendance_summary)은 원본 기록을 그대로 읽으므로 영향이 없습니다.
+                        삭제처럼 보이면 오해를 사서, 문구와 아이콘을 '숨기기'로 맞췄습니다. */}
+                    <button onClick={() => toggle(r.id, !isExcluded)} className={`mt-3 flex items-center gap-1 text-xs font-semibold ${isExcluded ? 'text-blue-700' : 'text-slate-600'}`}>
+                      {isExcluded ? <><RotateCcw size={13} />내 통계에 다시 표시</> : <><EyeOff size={13} />내 통계에서 숨기기</>}
                     </button>
-                    {isExcluded && <p className="mt-1 text-[11px] text-slate-500">이 기기의 통계에서만 제외되며 원본 기록은 유지됩니다.</p>}
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {isExcluded ? '이 기기의 내 통계에서만 숨겨져 있습니다. ' : '이 기기의 내 통계 화면에서만 가려집니다. '}
+                      기록 원본과 <strong>근태 집계·급여에는 그대로 반영</strong>됩니다.
+                    </p>
                     <AttendanceCorrection record={r} correction={corrections.get(r.id)} onRequested={() => void loadCorrections()} />
                   </li>
                 );

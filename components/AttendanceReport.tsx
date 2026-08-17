@@ -233,7 +233,7 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
                 <tbody className="divide-y divide-slate-100">
                   {summary.days.map((day) => (
                     <tr key={`${day.userId}-${day.date}`} className={day.isHoliday ? 'bg-slate-50/70' : ''}>
-                      <td className="px-5 py-2 text-xs font-bold">{day.date}{day.isHoliday && <span className="ml-1 text-[10px] font-normal text-rose-600">휴일</span>}</td>
+                      <td className="px-5 py-2 text-xs font-bold">{day.date}{day.isHoliday && <span className="ml-1 text-[10px] font-normal text-rose-600">{day.holidayName ?? '휴일'}</span>}</td>
                       <td className="px-4 py-2 text-xs">{day.nickname}{day.isRemote && <span className="ml-1 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">재택</span>}</td>
                       <td className="px-4 py-2 text-xs">{formatClock(day.workIn)}</td>
                       <td className="px-4 py-2 text-xs">{formatClock(day.workOut)}</td>

@@ -7,6 +7,7 @@ import { fetchAdminDashboard, reviewAdminRequest, type AdminDashboardData } from
 import { fetchWorkspaceCorrections, reviewCorrection, type CorrectionRequest } from '@/lib/attendance';
 import { fetchRemoteWork, localDate, REMOTE_STATUS_LABEL, reviewRemoteWork, type RemoteWorkRequest } from '@/lib/remoteWork';
 import AttendanceReport from '../AttendanceReport';
+import HolidayPanel from './HolidayPanel';
 
 const REMOTE_STATUS_STYLE: Record<string, string> = {
   pending: 'bg-amber-50 text-amber-800',
@@ -43,6 +44,8 @@ export default function WorkspaceAdminDashboard() {
   const [correctionError, setCorrectionError] = useState('');
   const [remoteRequests, setRemoteRequests] = useState<RemoteWorkRequest[]>([]);
   const [remoteError, setRemoteError] = useState('');
+  // 공휴일이 바뀌면 근무시간 집계를 다시 계산해야 해서 리포트를 새로 마운트합니다.
+  const [holidayVersion, setHolidayVersion] = useState(0);
 
   const loadCorrections = useCallback(async (id: string) => {
     setCorrectionError('');
@@ -119,7 +122,10 @@ export default function WorkspaceAdminDashboard() {
       </li>)}</ul>}
     </section>}
 
-    {workspaceId && <AttendanceReport workspaceId={workspaceId} adminMode />}
+    {workspaceId && <AttendanceReport key={`report-${holidayVersion}`} workspaceId={workspaceId} adminMode />}
+
+    {/* 휴일을 바꾸면 휴일근로·지각 계산이 달라지므로 집계를 다시 불러옵니다. */}
+    {workspaceId && <HolidayPanel workspaceId={workspaceId} year={new Date().getFullYear()} onChanged={() => setHolidayVersion((value) => value + 1)} />}
 
     {workspaceId && <section className="card overflow-hidden"><header className="border-b border-slate-200 px-5 py-4"><h2 className="font-black">근태 정정 요청</h2><p className="mt-1 text-xs text-slate-500">승인하면 기록이 바뀌고, 원본 값과 승인자가 변경 이력에 남습니다. 본인 기록은 다른 관리자만 승인할 수 있습니다.</p></header>
       {correctionError && <p role="alert" className="border-b border-red-100 bg-red-50 px-5 py-3 text-sm font-semibold text-red-700">{correctionError}</p>}

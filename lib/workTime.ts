@@ -37,6 +37,8 @@ export interface AttendanceDay {
   lateMinutes: number;
   earlyOutMinutes: number;
   isHoliday: boolean;
+  // 토·일이면 null, 등록된 공휴일이면 그 이름(예: 광복절, 창립기념일)
+  holidayName: string | null;
   isRemote: boolean;
   // 그날 위치 인증에 실패한 출퇴근 기록 수(0이면 문제 없음). 검증 대상이 아닌 기록은 세지 않습니다.
   locationUnverified: number;
@@ -134,10 +136,11 @@ export async function saveWorkPolicy(workspaceId: string, policy: Omit<WorkPolic
 
 // 급여 담당자에게 넘기는 용도라 엑셀에서 바로 열리는 CSV로 만듭니다(BOM 포함).
 export function attendanceCsv(days: AttendanceDay[]) {
-  const header = ['이름', '날짜', '근무형태', '출근', '퇴근', '근무(분)', '휴게(분)', '연장(분)', '야간(분)', '휴일(분)', '지각(분)', '조기퇴근(분)', '상태', '위치인증'];
+  const header = ['이름', '날짜', '휴일', '근무형태', '출근', '퇴근', '근무(분)', '휴게(분)', '연장(분)', '야간(분)', '휴일(분)', '지각(분)', '조기퇴근(분)', '상태', '위치인증'];
   const rows = days.map((day) => [
     day.nickname,
     day.date,
+    day.isHoliday ? (day.holidayName ?? '주말') : '',
     day.isRemote ? '재택' : '사무실',
     formatClock(day.workIn),
     formatClock(day.workOut),

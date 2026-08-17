@@ -116,7 +116,7 @@ export default function StatsPage() {
             <p className="font-bold"><Info size={14} className="mr-1 inline" />일부 기록은 통계에서 제외됐어요.</p>
             {issues.length > 0 && <p className="mt-1">자동 제외: {issues.join(', ')}</p>}
             <p className="mt-1">출근·퇴근은 도착까지 완료되어야 통계에 반영됩니다. 장거리 출퇴근과 하루 여러 번의 출퇴근은 정상 기록으로 반영하며, 완료되지 않았거나 이동시간 값이 잘못된 기록만 제외합니다.</p>
-            {excluded.size > 0 && <p className="mt-1">캘린더에서 직접 제외한 기록 {excluded.size}건은 이 기기 통계에 포함되지 않습니다.</p>}
+            {excluded.size > 0 && <p className="mt-1">캘린더에서 직접 숨긴 기록 {excluded.size}건은 <strong>이 기기의 이 화면에서만</strong> 빠져 있습니다. 근태 집계와 급여에는 그대로 반영됩니다.</p>}
           </div>}
 
           <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><AlertTriangle size={14} className="mr-1 inline" />CSV에는 출퇴근 시각 등 개인정보가 포함될 수 있으니 공유와 보관에 주의하세요.</p>
