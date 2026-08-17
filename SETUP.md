@@ -1,6 +1,22 @@
 # 출퇴근전쟁봇 개발 현황 & TODO
 
-> 마지막 작업일: 2026-08-08. 다음 세션 시작할 때 이 파일부터 읽기.
+> 마지막 작업일: **2026-08-17**. 다음 세션 시작할 때 이 파일부터 읽기.
+> 이번 세션 상세 기록: [`docs/2026-08-17_근태시스템_전환.md`](docs/2026-08-17_근태시스템_전환.md)
+
+## 지금 어디까지 왔나
+
+출퇴근 기록 앱 + 워크스페이스 채팅으로 시작했고, 2026-08-17부터 **근태 관리 시스템으로 상용화**하는
+방향으로 전환 중이다. 이번 세션에 근태의 토대(기록 신뢰성 → 근무시간 산정 → 재택 승인)를 깔았다.
+
+| 영역 | 상태 |
+|---|---|
+| 출퇴근/조퇴/휴가 기록 | 서버 시각으로만 기록, 직원 직접 수정·삭제 불가, 감사 로그 있음 |
+| 근태 정정 | 요청 → **다른 관리자** 승인 (본인 승인 불가) |
+| 근무시간 집계 | 소정근로·휴게·연장·야간·휴일·지각, 주 52시간 초과 판정, CSV 내보내기 |
+| 재택근무 | 신청 → 관리자 승인, **승인된 날만** 재택 기록 가능 |
+| 출근 위치 인증 | ❌ 없음 — 집에서도 출근 버튼이 눌린다 (다음 작업) |
+| 워크스페이스 채팅 | 채널·DM·파일 전송(10MB)·허들(1:1 음성+화면공유) |
+| 법·제도 대응 | 사용자 지시로 범위 제외 (상용화 전 노무사·변호사 자문 필요) |
 
 ## 배포 정보
 - **GitHub**: https://github.com/snail5039-code/commute-battle (public)
@@ -18,110 +34,77 @@ http://localhost:3000
 
 ---
 
-## ⚠️ 먼저 실행해야 하는 SQL (2026-08-17 추가)
+## 🚀 다음 세션 이렇게 시작하세요
 
-채널 파일 전송 기능은 새 마이그레이션을 적용해야 동작합니다. Supabase SQL Editor에서
-`supabase/migrations/202608170001_chat_attachments.sql` 전체를 한 번 실행하세요.
+### 1) 세션 시작할 때 이 말만 하면 됩니다
 
-- `chat_messages`에 `attachment_path/name/type/size` 컬럼 추가 (파일만 보낸 메시지는 본문이 비어 있어도 됨)
-- 비공개 Storage 버킷 `chat-files` 생성 + 워크스페이스 멤버만 읽기/업로드하는 정책
-- 첨부 경로 규칙: `<workspace_id>/<channel_id>/<임의키>` (RLS가 이 규칙으로 소속을 확인함)
+> commute-battle 프로젝트. `SETUP.md`와 `docs/2026-08-17_근태시스템_전환.md` 읽고,
+> A-3 출근 위치 인증(지오펜스)부터 진행해줘.
 
-실행 전에는 파일 첨부 버튼을 눌러도 업로드 단계에서 오류가 납니다. 메시지·허들은 영향 없습니다.
+지오펜스 말고 다른 걸 먼저 하고 싶으면 "A-3 대신 ○○ 먼저"라고 하면 됩니다(우선순위는 아래 로드맵 참고).
 
-## 2026-08-17 근태 신뢰성 작업 (마이그레이션 202608170002~5는 **이미 원격 DB에 적용됨**)
+### 2) 로컬 준비
 
-상용 근태 시스템으로 쓰려면 "직원이 기록을 원하는 값으로 넣을 수 있는 상태"를 먼저 없애야 해서 이 부분을 먼저 처리했습니다.
+```bash
+cd commute-battle
+npm run dev
+```
 
-- **시각은 서버만 찍습니다.** 출발·도착·재택·조퇴 기록은 전부 `attendance_*` RPC로만 만들어집니다
-  (`lib/attendance.ts`). `commute_records`에 대한 authenticated의 insert/update/delete 권한은 회수했고
-  남은 권한은 select 뿐입니다. PC 시계를 바꿔도 기록 시각은 바뀌지 않습니다.
-- **감사 로그.** `commute_record_audits`에 모든 insert/update/delete가 before/after와 실행자까지 남습니다
-  (테이블은 RLS만 켜고 정책을 두지 않아 정의자 함수 외에는 아무도 못 읽습니다).
-- **정정은 승인제.** 직원은 캘린더에서 정정 요청을 보내고(`components/AttendanceCorrection.tsx`),
-  관리자가 /admin에서 승인·반려합니다. **본인 요청은 본인이 승인할 수 없습니다** — 워크스페이스에 관리자가
-  한 명뿐이면 그 사람 기록은 정정할 수 없으니, 실제 운영 전에 관리자를 2명 이상 둬야 합니다.
-- **타임존 버그 수정(데이터 교정 포함).** `start_time`/`end_time`이 `timestamp`(타임존 없음)였는데 앱이 UTC
-  문자열을 넣고 브라우저는 현지 시각으로 읽어서, 모든 시각이 9시간 밀려 보이고 이동 시간이 부풀려져
-  있었습니다(저장된 평균 568분 → 실제 28분). 컬럼을 `timestamptz`로 바꾸고 기존 47건을 다시 계산했습니다.
-- **권한 구멍 정리.** Supabase 기본 권한 때문에 authenticated에게 18개 테이블의 **TRUNCATE**가 열려
-  있었습니다(RLS는 TRUNCATE를 막지 못함) — 로그인만 하면 근태 원장을 통째로 비울 수 있는 상태였습니다.
-  `quest_claims`는 RLS 자체가 꺼져 있고 anon에게 읽기·쓰기·삭제가 열려 있었습니다. 둘 다 잠갔습니다.
-- 지난 날짜의 미완료 기록은 새 출근을 막지 않습니다(오늘 진행 중인 기록만 중복 차단). 기존 기록 38건에는
-  소속 워크스페이스를 채워서 정정 요청이 가능하게 했습니다.
+- `npm install`은 이미 되어 있습니다. 모듈을 못 찾는 오류가 나면 그때만 다시 실행하세요.
+- **DB 마이그레이션은 0001~0008 전부 적용 완료**입니다. 지금 당장 실행할 SQL은 없습니다.
+- 배포는 master에 push하면 Vercel이 자동으로 합니다.
 
-### 근무시간 산정 (마이그레이션 202608170007도 **적용 완료**)
+### 3) 사용자가 직접 해봐야 하는 검증 (아직 실제 사용 기록이 0건)
 
-기존 기록에서 근무시간이 그대로 도출됩니다 — **출근 기록의 도착 시각 = 근무 시작**, **퇴근 기록의 출발
-시각 = 근무 종료**. 그래서 사용자 조작 흐름은 그대로 두고 산정 계층만 추가했습니다.
+새 기능들은 합성 데이터로만 검증했습니다. 실제 계정으로 한 번씩 눌러 봐야 하는 것:
 
-- `work_policies` (워크스페이스별): 소정근로 시작·종료, 1일/1주 소정근로, 주 한도(기본 52시간),
-  휴게 분, 야간 시간대. 관리자만 `upsert_work_policy`로 수정.
-- `get_attendance_summary(workspace, from, to, user?)`: 일별(근무·휴게·연장·야간·휴일·지각·조기퇴근·상태)
-  + 주별(근무·연장·한도 초과) 집계. **관리자는 전체, 일반 구성원은 자기 것만** 자동으로 좁혀집니다.
-  계산은 서버 한 곳에만 둡니다(임금에 영향을 주는 값이라).
-- 규칙: 휴게는 8시간 이상 정책값·4시간 이상 30분, 연장은 1일 8시간 초과 합계와 1주 40시간 초과 중
-  **큰 쪽**, 야간은 22~06시 교집합, 휴일은 토·일, 지각·조기퇴근은 소정근로 시각 기준(휴일 제외).
-- 화면: /admin에 근무시간 집계 + 정책 편집 + CSV 내보내기(`components/AttendanceReport.tsx`),
-  /stats에 본인 근무시간(`components/MyAttendanceSection.tsx`).
-- 검증: 정상 8시간/연장/야간/새벽/휴일/미완료/휴가, 주 55.5시간 → 52시간 초과 판정까지 원격 DB에서
-  합성 기록으로 확인(모두 롤백). 예: 09:30~23:00 → 근무 750분·연장 270분·야간 60분·지각 30분.
+- [ ] 채널에 이미지 1장 + 일반 파일 1개 보내기 → 다른 계정에서 열리는지
+- [ ] 허들: 계정 2개로 1:1 통화 + 화면 공유 (브라우저, 그리고 데스크톱 앱)
+- [ ] 재택근무 신청 → /admin에서 승인 → 재택 출근 기록 → 집계에 '재택'으로 나오는지
+- [ ] 캘린더에서 근태 정정 요청 → /admin에서 승인 → 기록이 바뀌고 이력이 남는지
+- [ ] /admin 근무시간 집계에서 CSV 내보내기 → 엑셀에서 한글이 깨지지 않는지
 
-### 재택근무 승인제 (마이그레이션 202608170008도 **적용 완료**)
+문제가 있으면 다음 세션에 "○○ 안 된다"고 하면 됩니다.
 
-지오펜스를 붙이기 전에 반드시 필요한 조각입니다 — 재택 여부가 기기 설정이면 "오늘 재택"이라고 주장해서
-위치 검증을 그냥 우회할 수 있습니다.
+### 4) 다음 작업(A-3 지오펜스) 설계안 — 시작 전에 이 판단만 정해주세요
 
-- `remote_work_requests`: 날짜·사유로 신청 → 관리자 승인/반려. 같은 날짜에 살아 있는 신청은 하나만.
-- **재택 기록(`attendance_record_instant`)은 승인된 날만 허용**합니다. 승인을 취소(반려)하면 다시 막힙니다.
-  워크스페이스에 속하지 않은 개인 기록은 승인 없이 그대로 됩니다.
-- 승인되면 그날은 기기 설정과 무관하게 자동으로 재택 모드가 되고, 설정만 재택이고 승인이 없으면
-  사무실 출퇴근으로 되돌립니다(`components/CommuteButton.tsx`).
-- 화면: /settings 근무 탭에 신청·취소·상태(`components/RemoteWorkPanel.tsx`), /admin에 승인 목록.
-  근태 집계와 CSV에 '재택/사무실' 구분이 들어갑니다.
-- **관리자 자기 승인은 허용**합니다(관리자 1명 워크스페이스가 막히므로). 대신 승인자를 남기고 목록에
-  '본인 승인'으로 표시합니다. 임금을 직접 바꾸는 근태 정정과 달리 되돌릴 수 있는 운영 판단이라 구분했습니다.
+규칙은 이제 깔끔합니다: **재택 승인이 없는 날의 출근은 사업장 반경 안에서만 기록.**
 
-### 근태 시스템으로 아직 남은 것 (법·제도 항목 제외)
-1. **출근 인증(지오펜스)** — 사무실 출근은 아직 위치 검증이 없어 집에서도 누를 수 있습니다. 다음 작업 대상.
-   재택 승인제가 들어갔으니 이제 "승인 없는 날의 출근은 사업장 반경 안에서만" 규칙을 걸 수 있습니다.
-2. **공휴일 달력 · 교대/유연근무제** — 휴일은 토·일 고정이고, 자정을 넘겨 퇴근하면 두 날짜로 나뉘어
-   '기록 미완료'로 잡힙니다. 근무 스케줄이 아직 기기 localStorage에도 남아 있어 `is_on_time`은
-   경험치용 자기신고 값입니다(리포트는 서버 계산을 씁니다).
-3. 조직(부서·직급), 휴가 신청·잔여, 급여 시스템 연동 포맷, 월 마감(확정) 처리, 자동 테스트.
+1. `work_policies`에 사업장 좌표 + 허용 반경(기본 200m) 추가, 관리자가 지도에서 지정
+2. `attendance_start`가 위치를 받아 **서버에서** 거리 계산 후 판정 (클라이언트가 "가깝다"고 주장하면 안 됨)
+3. **결정 필요 — GPS가 안 잡히거나 정확도가 낮을 때:**
+   - (제안) 막지 말고 기록하되 `location_verified=false` + 사유를 남기고 관리자 확인 대상으로 표시
+   - 아니면 아예 차단 (현장에서 GPS 실패로 출근을 못 하는 상황이 생김)
 
-## 2026-08-17 채팅 기능 추가
+제안대로 갈지, 차단할지만 알려주면 됩니다.
 
-- **어두운 테마 대비 보정** (`app/globals.css`): 밝은 색조 배경(`bg-*-50/100`) 위에 밝은 글자색이 찍혀
-  글씨가 안 보이던 문제를 색 계열별 규칙으로 일괄 수정. 지도 경로 패널 전용 하드코딩 규칙을 걷어내고
-  앱 전체에 적용되는 규칙으로 대체함 (경로 패널의 "현재 구간 …" 칩, 알림 설정 카테고리 제목 등)
-- **채널 파일 전송** (`lib/departmentChat.ts`, `components/chat/DepartmentChat.tsx`): 이미지+일반 파일,
-  10MB 제한, 이미지 인라인 미리보기, 비공개 버킷이라 1시간짜리 서명 URL로 열람
-- **허들(1:1 음성 통화 + 화면 공유)** (`lib/huddle.ts`, `components/chat/HuddleBar.tsx`): WebRTC 미디어 +
-  Supabase Realtime broadcast 시그널링, 무료 STUN만 사용(TURN 없음 → 대칭형 NAT에서는 실패할 수 있음).
-  Electron에서도 쓰도록 `desktop/main.cjs`에 마이크·화면공유 권한 핸들러 추가
-- 남은 확인: 실제 계정 2개로 채널 파일 업로드/다운로드와 허들 통화(브라우저·데스크톱 앱) 검증
+### 5) 재논의 대상으로 남겨둔 것
+
+- **관리자 자기 승인**: 재택 승인은 허용(관리자 1명 워크스페이스가 막히므로), 근태 정정은 금지 —
+  이렇게 다르게 뒀습니다. 통일할지 결정 필요.
+- **실제 운영 전 필수**: 워크스페이스에 관리자를 2명 이상 둬야 근태 정정이 가능합니다.
 
 ---
 
-## 🔲 지금 당장 이어서 할 일 (다음 세션에 시작할 것)
+## 🗺 로드맵 (근태 시스템, 법·제도 항목 제외)
 
-### 1. 부서별 채팅 (팝업창) — 사용자가 요청, 설계까지 끝내고 구현은 다음 세션으로 미룸 (2026-08-08)
-마감(8/9)이 임박해서 사용자가 "이 정도만 하자, 다음에 추가로 넣자"고 명시적으로 보류 지시함. **설계는 이미 끝났으니 다음 세션엔 바로 구현 시작하면 됨** — 전체 설계 문서: `C:\Users\snail\.claude\plans\happy-chasing-feigenbaum.md` (이 파일이 없어졌으면 아래 요약으로 재구성 가능).
+1. **A-3 출근 위치 인증(지오펜스)** — 지금 가장 큰 구멍. 위 설계안 참고.
+2. **공휴일 달력 · 교대/유연근무제** — 휴일이 토·일 고정이고, 자정을 넘겨 퇴근하면 출근·퇴근이 다른
+   날짜로 갈라져 양쪽 다 '기록 미완료'가 됩니다. 근무 스케줄을 서버로 올리면 `is_on_time`도 서버 판정으로
+   바꿀 수 있습니다(지금은 경험치용 자기신고 값).
+3. **월 마감(확정) 처리** — 지난달 기록이 계속 정정될 수 있는 상태입니다. 급여 정산 전 확정이 필요합니다.
+4. **자동 테스트** — 임금에 영향을 주는 계산이 늘었는데 테스트가 0개입니다.
+5. 조직(부서·직급), 휴가 신청·잔여, 급여 시스템 연동 포맷.
 
-**요약:**
-- 부서 이름은 자유 텍스트 (`users.department` 컬럼 신규 추가, `nickname`처럼 2~20자 체크). 고정 목록 아님 — 사용자가 직접 확정함
-- 신규 테이블 `department_messages` (department, user_id, author_nickname, content, created_at) — **RLS를 켜야 함** (부서 격리가 이 기능의 핵심이라 꺼두면 의미 없음, `community_posts`처럼 `auth.uid()` 기반 정책). `alter publication supabase_realtime add table` 필요 — 이 앱은 지금까지 Realtime을 한 번도 안 써봤음
-- 신규 `lib/departmentChat.ts`: `fetchDepartmentMessages`/`sendDepartmentMessage`/`subscribeToDepartmentMessages` (Realtime 구독)
-- 신규 팝업 페이지 `app/chat/page.tsx` — `AppShell.tsx`의 `isLoginPage` 판별에 `/chat` 추가해서 사이드바 없이 채팅만 뜨게 함
-- 진입점: `Sidebar.tsx`에 `window.open('/chat', 'department-chat', 'width=380,height=600')` 버튼 (데스크톱만, `NAV_ITEMS`엔 안 넣음 — `Link`로는 팝업이 안 열림)
-- 검증 방법(이번 세션에 실제로 썼던 패턴): RLS는 `set local request.jwt.claim.sub`로 특정 사용자 JWT 흉내내서 SQL로 직접 확인, UI는 AppShell 임시 우회 + mock user로 렌더링 후 되돌리기, "다른 사용자 메시지 도착"은 SQL로 직접 insert해서 Realtime이 집어오는지 확인
+## 🔲 보류 중인 작은 항목
 
-### 2. 병가(sick) 버튼이 없음 — 사용자가 우선순위 낮춤, 보류
+### 병가(sick) 버튼이 없음 — 사용자가 우선순위 낮춤, 보류
 - DB 스키마(`commute_records.type`)는 `'sick'`을 이미 지원하지만, `components/CommuteButton.tsx`의 `recordSimpleEvent` 타입 유니언과 UI 버튼 둘 다 `'early_leave' | 'vacation'`만 있고 병가가 없음
 - 사용자가 "병가는 우선 빼자"고 명시적으로 보류 지시함 (2026-08-06) — 나중에 다시 요청하면 조퇴/휴가 옆에 병가 버튼 추가하고 3열 그리드로 조정 (`grid-cols-2` → `grid-cols-3`)
 
 ---
+
+# 지난 세션 기록 (참고용, 아래는 과거 이력)
 
 ## ✅ 8/8 세션에서 고친 것 (버그 15개 + 기능 2개)
 
@@ -203,12 +186,44 @@ http://localhost:3000
 
 ## 데이터 구조 참고
 
-### 테이블: users / commute_records / badges / community_posts / quest_claims
-스키마는 `schema.sql` 참고 (단, 실제 DB는 `username`/`nickname`/`department`(예정) 컬럼 등이 추가돼 있어 파일보다 앞서 있음 — 확실한 건 Supabase에서 직접 확인). `commute_records.type`은 `'commute' | 'return' | 'early_leave' | 'vacation' | 'sick' | 'absence'`. `quest_claims`는 `(user_id, claim_key)` 유니크 제약으로 퀘스트 중복 수령을 막음. RLS는 `community_posts`만 켜져 있고 나머지는 다 꺼짐(부서 채팅 추가 시 `department_messages`는 RLS 켜야 함, 위 "지금 당장 이어서 할 일" 참고).
+### 마이그레이션 적용 상태 (2026-08-17 확인)
+`supabase/migrations/`의 파일이 곧 진실이고, **0001~0008 모두 원격 DB에 적용 완료**다.
+`schema.sql`은 초기 스키마라 현재 DB보다 뒤쳐져 있다(예: `start_time`은 이제 `timestamptz`).
+확실한 건 Supabase에서 직접 확인할 것.
+
+| 파일 | 내용 |
+|---|---|
+| `202608170001_chat_attachments.sql` | 채널 파일 첨부 컬럼 + 비공개 버킷 `chat-files` + 정책 |
+| `202608170002_attendance_integrity.sql` | 서버 시각 기록 RPC, 감사 로그, 정정 승인, timestamptz 전환 |
+| `202608170003_grant_hardening.sql` | TRUNCATE 회수, `quest_claims` RLS |
+| `202608170004_backfill_record_workspace.sql` | 기존 기록 38건에 소속 워크스페이스 채움 |
+| `202608170005_attendance_start_scope.sql` | 중복 출발 차단을 당일로 한정 |
+| `202608170006_attendance_function_grants.sql` | 근태 RPC를 비로그인 호출에서 차단 |
+| `202608170007_work_time.sql` | `work_policies` + `get_attendance_summary` |
+| `202608170008_remote_work.sql` | 재택 신청·승인 + 재택 기록 제한 |
+
+### 테이블과 RLS
+`users` / `commute_records` / `badges` / `community_posts` / `quest_claims` /
+`chat_*`(워크스페이스·채널·메시지·DM) / `work_policies` / `remote_work_requests` /
+`commute_correction_requests` / `commute_record_audits`.
+
+**RLS는 public 스키마 전 테이블에 켜져 있다**(예전 메모에 "community_posts만 켜져 있음"이라고 적혀
+있었지만 지금은 아니다). 특히:
+
+- `commute_records`: authenticated 권한은 **SELECT만**. 쓰기는 `attendance_*` RPC로만.
+- `commute_record_audits`: RLS만 켜고 정책 없음 → 정의자 함수 외에는 아무도 못 읽는다.
+- TRUNCATE/TRIGGER/REFERENCES는 anon·authenticated에서 회수했다(RLS가 TRUNCATE를 막지 못하므로).
+- `commute_records.type`은 `'commute' | 'return' | 'early_leave' | 'vacation' | 'sick' | 'absence'`.
 
 ### 주요 파일 위치
 | 기능 | 파일 |
 |---|---|
+| 근태 기록 RPC 클라이언트 · 정정 요청 | `lib/attendance.ts` |
+| 근무시간 집계 표시·CSV | `lib/workTime.ts`, `components/AttendanceReport.tsx` |
+| 재택 신청·승인 | `lib/remoteWork.ts`, `components/RemoteWorkPanel.tsx` |
+| 관리자 화면(정정·재택 승인·집계) | `components/admin/WorkspaceAdminDashboard.tsx` |
+| 채팅(채널·파일 전송) | `lib/departmentChat.ts`, `components/chat/DepartmentChat.tsx` |
+| 허들(1:1 통화·화면공유) | `lib/huddle.ts`, `components/chat/HuddleBar.tsx` |
 | 출퇴근 버튼 · 조퇴/휴가(병가 추가 예정) | `components/CommuteButton.tsx` |
 | 대시보드 그리드 | `components/DashBoard.tsx` |
 | 대시보드 요약 로직(퇴근 경로 등) | `lib/dashboardSummary.ts` |
@@ -225,14 +240,9 @@ http://localhost:3000
 
 ---
 
-## ⚠️ 제출 전 반드시 확인 (마감 8/9 일요일 23:59)
-- [x] 미니프로젝트 제출 문서(`../미니프로젝트3_출퇴근전쟁봇.md`) 최신 기능 반영해서 갱신 — 8/8에 끝남
-- [x] 날씨 API — 실제로는 Open-Meteo 무료 API를 이미 쓰고 있음 (하드코딩 아님, 확인 완료)
-- [ ] **Supabase RLS가 `users`/`commute_records`/`badges`/`quest_claims` 4개 테이블 모두 비활성화 상태.** 데모용이면 괜찮지만 신경 쓰인다면 RLS 정책 추가 (`community_posts`는 이미 켜져 있음)
-- [ ] 배지 진행도가 `badges` 테이블에 실제로 저장 안 되고 매번 클라이언트에서 재계산됨 (기능은 정상 동작하니 급하지 않음) — 퀘스트 보상은 8/8에 서버 저장으로 옮겼으니 이건 별개 항목
-- [ ] 다른 기기/시크릿 창에서 전체 플로우 한 번 더 테스트 (사용자가 직접 할 항목)
-- [ ] 스크린샷 2장 이상 (AI 기능 동작 장면 필수) 준비 (사용자가 직접 할 항목)
-- [ ] `node_modules` 제외하고 작업폴더 + md 문서 zip 압축 (사용자가 직접 할 항목)
+## 미해결로 남아 있는 작은 항목
+- 배지 진행도가 `badges` 테이블에 저장되지 않고 매번 클라이언트에서 재계산됨 (동작은 정상)
+- 미니프로젝트 제출은 2026-08-09에 끝났음 (제출 문서 `../미니프로젝트3_출퇴근전쟁봇.md`는 그 시점 기준)
 
 ---
 
@@ -240,6 +250,14 @@ http://localhost:3000
 - **커밋 메시지는 한국어로.** 본문은 왜(root cause) 위주로 서술 (8/6엔 영어로 썼다가 8/8에 사용자가 직접 한국어로 바꾸라고 교정함 — 처음부터 한국어로 쓸 것)
 - **GitHub push까지만** 하고 Vercel은 자동배포에 맡길 것 (수동 `vercel --prod` 금지, 사용자 지시)
 - 코드 수정 후 `npx tsc --noEmit` + `npm run lint` + `npm run build` 세 개 다 통과 확인하고 커밋
+- **DB 마이그레이션은 파일로 남기고 Supabase MCP `apply_migration`으로 적용**한다(2026-08-17에 사용자가
+  이 방식을 선택). 적용 후에는 read-only 쿼리로 결과를 직접 확인할 것.
+- **RPC·정책 검증은 롤백되는 DO 블록으로** 한다 — `do $$ ... raise exception 'TEST_RESULT: %', msg; end $$;`
+  마지막에 예외를 던지면 전부 롤백되므로, 실제 데이터 위에서 돌려도 아무것도 남지 않는다.
+  사용자 흉내내기는 `perform set_config('request.jwt.claim.sub', '<uuid>', true)`.
+- `npm install`은 **샌드박스를 끄고** 실행해야 실제 디스크에 설치된다(샌드박스에서는 성공한 것처럼 보이지만
+  dev 서버가 모듈을 못 찾는다). 설치 후에도 Turbopack이 실패한 해석을 캐시하고 있으면 dev 서버를 멈추고
+  `.next`를 지운 뒤 다시 띄운다(서버가 떠 있으면 파일이 잠겨 삭제 실패).
 - push 후 `vercel ls`로 새 배포가 Ready 될 때까지 기다렸다가 실제 배포 사이트에서 동작 확인 (로컬 dev 서버는 브라우저 세션 캐시 문제로 헷갈릴 때가 많았음)
 - 브라우저 자동화 도구가 이 환경에서 가끔 "pane not displayed, not compositing frames" 상태가 됨 → 스크린샷/ResizeObserver가 안 먹힐 수 있으니 `getBoundingClientRect` 같은 레이아웃 기반 값으로 대체 확인
 - OneDrive 폴더라 `.next` 빌드 캐시가 파일 잠금(EPERM)을 일으킬 수 있음 → 안되면 보고하고, 명시적 허락 없이 캐시 삭제하지 말 것
