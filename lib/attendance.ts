@@ -45,6 +45,8 @@ const SETUP_MESSAGE = '근태 기록 서버 설정(202608170002 마이그레이�
 function toError(cause: unknown, fallback: string): Error {
   const error = cause as { code?: string; message?: string } | null;
   if (error?.code === MISSING_FUNCTION) return new Error(SETUP_MESSAGE);
+  // 42501은 Postgres 권한 오류입니다. 원문(영문)을 그대로 보여주면 사용자가 이해하기 어렵습니다.
+  if (error?.code === '42501') return new Error('권한이 없습니다. 로그인 상태를 확인해 주세요.');
   return new Error(error?.message || fallback);
 }
 

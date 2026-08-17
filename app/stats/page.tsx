@@ -7,6 +7,7 @@ import TopBar from '@/components/TopBar';
 import StatsCharts from '@/components/StatsCharts';
 import WeeklyRecapCard from '@/components/WeeklyRecapCard';
 import PetStatsMood from '@/components/PetStatsMood';
+import MyAttendanceSection from '@/components/MyAttendanceSection';
 import { qualitySummary } from '@/lib/dataQuality';
 import { comparisonPercent, computePeriodStats, StatsPeriod } from '@/lib/stats';
 import { buildWeeklyRecapData } from '@/lib/weeklyRecapCard';
@@ -128,6 +129,9 @@ export default function StatsPage() {
           </div>
 
           <StatsCharts points={stats.trend} weather={stats.weatherBreakdown} transport={stats.transportBreakdown} />
+
+          {/* 회사 기준으로 계산한 근무시간(서버 집계). 위 통계는 이동 기준이라 값이 다릅니다. */}
+          <MyAttendanceSection />
 
           {showRecap && user && (
             <WeeklyRecapCard

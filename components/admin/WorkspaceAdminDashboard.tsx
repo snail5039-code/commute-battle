@@ -5,6 +5,7 @@ import { Check, Clock3, ExternalLink, LoaderCircle, MapPin, RefreshCw, ShieldChe
 import { fetchChatWorkspaces, type ChatWorkspace } from '@/lib/departmentChat';
 import { fetchAdminDashboard, reviewAdminRequest, type AdminDashboardData } from '@/lib/workspaceAdmin';
 import { fetchWorkspaceCorrections, reviewCorrection, type CorrectionRequest } from '@/lib/attendance';
+import AttendanceReport from '../AttendanceReport';
 
 const TYPE_LABEL: Record<string, string> = { commute: '출근', return: '퇴근', early_leave: '조퇴', vacation: '휴가', sick: '병가', absence: '결근' };
 
@@ -73,6 +74,8 @@ export default function WorkspaceAdminDashboard() {
     {!workspaceId && <div className="card p-8 text-center text-sm text-slate-500">소유자 또는 승인된 관리자 권한이 있는 워크스페이스가 없습니다.</div>}
     {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
     {workspaceId && data.requests.length > 0 && <section className="card overflow-hidden"><header className="border-b border-slate-200 px-5 py-4"><h2 className="font-black">관리자 승인 대기</h2><p className="mt-1 text-xs text-slate-500">워크스페이스 소유자와 관리자가 승인하거나 거절할 수 있습니다.</p></header><ul className="divide-y divide-slate-100">{data.requests.map((request) => <li key={request.userId} className="flex items-center justify-between gap-3 px-5 py-3"><div><strong className="text-sm">{request.nickname}</strong><p className="text-xs text-slate-400">{new Date(request.requestedAt).toLocaleString('ko-KR')} 신청</p></div><div className="flex gap-2"><button type="button" onClick={() => void review(request.userId, false)} className="flex h-9 items-center gap-1 rounded-lg border border-slate-300 px-3 text-xs font-bold"><X size={14}/>거절</button><button type="button" onClick={() => void review(request.userId, true)} className="flex h-9 items-center gap-1 rounded-lg bg-blue-600 px-3 text-xs font-bold text-white"><Check size={14}/>승인</button></div></li>)}</ul></section>}
+
+    {workspaceId && <AttendanceReport workspaceId={workspaceId} adminMode />}
 
     {workspaceId && <section className="card overflow-hidden"><header className="border-b border-slate-200 px-5 py-4"><h2 className="font-black">근태 정정 요청</h2><p className="mt-1 text-xs text-slate-500">승인하면 기록이 바뀌고, 원본 값과 승인자가 변경 이력에 남습니다. 본인 기록은 다른 관리자만 승인할 수 있습니다.</p></header>
       {correctionError && <p role="alert" className="border-b border-red-100 bg-red-50 px-5 py-3 text-sm font-semibold text-red-700">{correctionError}</p>}
