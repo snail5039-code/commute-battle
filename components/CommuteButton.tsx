@@ -86,25 +86,25 @@ export default function CommuteButton({
   const setStoredSchedule = useStore((state) => state.setWorkSchedule);
   const petId = useSelectedPetId();
 
-  const today = localDateKey(new Date());
-  const activeRecord = records.find(
-    (r) =>
-      r.date === today &&
-      (r.type === 'commute' || r.type === 'return') &&
-      !r.end_time
-  );
-  const commuteCount = records.filter(
-    (r) => r.date === today && r.type === 'commute'
-  ).length;
-  const returnCount = records.filter(
-    (r) => r.date === today && r.type === 'return'
-  ).length;
-  const earlyLeaveCount = records.filter(
-    (r) => r.date === today && r.type === 'early_leave'
-  ).length;
-  const vacationCount = records.filter(
-    (r) => r.date === today && r.type === 'vacation'
-  ).length;
+  const today = localDateKey(now);
+  const yesterday = localDateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+
+  // 자정을 넘겨 일하면 오늘 날짜에는 출근 기록이 없습니다. 날짜만 보고 버튼 상태를 정하면
+  // 새벽 1시에 퇴근 버튼이 비활성화돼 퇴근을 아예 못 찍습니다. 그래서 서버의
+  // attendance_work_date와 같은 규칙으로 '아직 퇴근으로 닫히지 않은 근무일'을 기준으로 삼습니다.
+  const countOn = (date: string, type: CommuteRecord['type']) =>
+    records.filter((r) => r.date === date && r.type === type).length;
+  const activeWorkDate =
+    [today, yesterday].find((date) => countOn(date, 'commute') > countOn(date, 'return')) ?? today;
+
+  const activeRecord = records
+    .filter((r) => (r.date === today || r.date === yesterday) && (r.type === 'commute' || r.type === 'return') && !r.end_time)
+    .sort((a, b) => (b.start_time ?? '').localeCompare(a.start_time ?? ''))[0];
+  const commuteCount = countOn(activeWorkDate, 'commute');
+  const returnCount = countOn(activeWorkDate, 'return');
+  // 조퇴·휴가는 서버가 항상 오늘 날짜로 기록하므로 여기서도 오늘 기준으로 셉니다.
+  const earlyLeaveCount = countOn(today, 'early_leave');
+  const vacationCount = countOn(today, 'vacation');
 
   useEffect(() => {
     const saved = loadWorkSchedule(user.id);
@@ -296,7 +296,7 @@ export default function CommuteButton({
   const workRemainingMs = endOfWork.getTime() - now.getTime();
 
   const activeOrdinal = activeRecord
-    ? (activeRecord.type === 'commute' ? commuteCount : returnCount)
+    ? countOn(activeRecord.date, activeRecord.type)
     : 0;
 
   const statusText = workday.mode === 'off'
