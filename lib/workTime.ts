@@ -31,6 +31,7 @@ export interface AttendanceDay {
   lateMinutes: number;
   earlyOutMinutes: number;
   isHoliday: boolean;
+  isRemote: boolean;
   status: AttendanceStatus;
   openRecords: number;
 }
@@ -119,10 +120,11 @@ export async function saveWorkPolicy(workspaceId: string, policy: Omit<WorkPolic
 
 // 급여 담당자에게 넘기는 용도라 엑셀에서 바로 열리는 CSV로 만듭니다(BOM 포함).
 export function attendanceCsv(days: AttendanceDay[]) {
-  const header = ['이름', '날짜', '출근', '퇴근', '근무(분)', '휴게(분)', '연장(분)', '야간(분)', '휴일(분)', '지각(분)', '조기퇴근(분)', '상태'];
+  const header = ['이름', '날짜', '근무형태', '출근', '퇴근', '근무(분)', '휴게(분)', '연장(분)', '야간(분)', '휴일(분)', '지각(분)', '조기퇴근(분)', '상태'];
   const rows = days.map((day) => [
     day.nickname,
     day.date,
+    day.isRemote ? '재택' : '사무실',
     formatClock(day.workIn),
     formatClock(day.workOut),
     day.workedMinutes,

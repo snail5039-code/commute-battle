@@ -5,7 +5,15 @@ import { Check, Clock3, ExternalLink, LoaderCircle, MapPin, RefreshCw, ShieldChe
 import { fetchChatWorkspaces, type ChatWorkspace } from '@/lib/departmentChat';
 import { fetchAdminDashboard, reviewAdminRequest, type AdminDashboardData } from '@/lib/workspaceAdmin';
 import { fetchWorkspaceCorrections, reviewCorrection, type CorrectionRequest } from '@/lib/attendance';
+import { fetchRemoteWork, localDate, REMOTE_STATUS_LABEL, reviewRemoteWork, type RemoteWorkRequest } from '@/lib/remoteWork';
 import AttendanceReport from '../AttendanceReport';
+
+const REMOTE_STATUS_STYLE: Record<string, string> = {
+  pending: 'bg-amber-50 text-amber-800',
+  approved: 'bg-emerald-50 text-emerald-800',
+  rejected: 'bg-rose-50 text-rose-700',
+  cancelled: 'bg-slate-100 text-slate-500',
+};
 
 const TYPE_LABEL: Record<string, string> = { commute: '출근', return: '퇴근', early_leave: '조퇴', vacation: '휴가', sick: '병가', absence: '결근' };
 
@@ -33,6 +41,8 @@ export default function WorkspaceAdminDashboard() {
 
   const [corrections, setCorrections] = useState<CorrectionRequest[]>([]);
   const [correctionError, setCorrectionError] = useState('');
+  const [remoteRequests, setRemoteRequests] = useState<RemoteWorkRequest[]>([]);
+  const [remoteError, setRemoteError] = useState('');
 
   const loadCorrections = useCallback(async (id: string) => {
     setCorrectionError('');
@@ -40,13 +50,30 @@ export default function WorkspaceAdminDashboard() {
     catch (cause) { setCorrections([]); setCorrectionError(cause instanceof Error ? cause.message : '정정 요청을 불러오지 못했습니다.'); }
   }, []);
 
+  const loadRemote = useCallback(async (id: string) => {
+    setRemoteError('');
+    try {
+      const today = new Date();
+      const from = localDate(new Date(today.getFullYear(), today.getMonth() - 1, 1));
+      const to = localDate(new Date(today.getFullYear(), today.getMonth() + 2, 0));
+      setRemoteRequests(await fetchRemoteWork(id, from, to));
+    } catch (cause) { setRemoteRequests([]); setRemoteError(cause instanceof Error ? cause.message : '재택근무 신청을 불러오지 못했습니다.'); }
+  }, []);
+
+  const decideRemote = async (requestId: string, approve: boolean) => {
+    if (!workspaceId) return;
+    try { await reviewRemoteWork(requestId, approve); await loadRemote(workspaceId); }
+    catch (cause) { setRemoteError(cause instanceof Error ? cause.message : '신청을 처리하지 못했습니다.'); }
+  };
+
   const loadDashboard = useCallback(async (id: string) => {
     setLoading(true); setError('');
     try { setData(await fetchAdminDashboard(id)); }
     catch (cause) { setError(cause instanceof Error ? cause.message : '현황을 불러오지 못했습니다.'); }
     finally { setLoading(false); }
     await loadCorrections(id);
-  }, [loadCorrections]);
+    await loadRemote(id);
+  }, [loadCorrections, loadRemote]);
 
   const decide = async (requestId: string, approve: boolean) => {
     if (!workspaceId) return;
@@ -74,6 +101,23 @@ export default function WorkspaceAdminDashboard() {
     {!workspaceId && <div className="card p-8 text-center text-sm text-slate-500">소유자 또는 승인된 관리자 권한이 있는 워크스페이스가 없습니다.</div>}
     {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
     {workspaceId && data.requests.length > 0 && <section className="card overflow-hidden"><header className="border-b border-slate-200 px-5 py-4"><h2 className="font-black">관리자 승인 대기</h2><p className="mt-1 text-xs text-slate-500">워크스페이스 소유자와 관리자가 승인하거나 거절할 수 있습니다.</p></header><ul className="divide-y divide-slate-100">{data.requests.map((request) => <li key={request.userId} className="flex items-center justify-between gap-3 px-5 py-3"><div><strong className="text-sm">{request.nickname}</strong><p className="text-xs text-slate-400">{new Date(request.requestedAt).toLocaleString('ko-KR')} 신청</p></div><div className="flex gap-2"><button type="button" onClick={() => void review(request.userId, false)} className="flex h-9 items-center gap-1 rounded-lg border border-slate-300 px-3 text-xs font-bold"><X size={14}/>거절</button><button type="button" onClick={() => void review(request.userId, true)} className="flex h-9 items-center gap-1 rounded-lg bg-blue-600 px-3 text-xs font-bold text-white"><Check size={14}/>승인</button></div></li>)}</ul></section>}
+
+    {workspaceId && <section className="card overflow-hidden"><header className="border-b border-slate-200 px-5 py-4"><h2 className="font-black">재택근무 신청</h2><p className="mt-1 text-xs text-slate-500">승인된 날만 재택으로 기록됩니다. 승인하지 않으면 그날은 사무실 출퇴근으로만 기록할 수 있습니다.</p></header>
+      {remoteError && <p role="alert" className="border-b border-red-100 bg-red-50 px-5 py-3 text-sm font-semibold text-red-700">{remoteError}</p>}
+      {remoteRequests.length === 0 && !remoteError ? <p className="px-5 py-6 text-center text-sm text-slate-500">최근 재택근무 신청이 없습니다.</p> : <ul className="divide-y divide-slate-100">{remoteRequests.map((item) => <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+        <div className="min-w-0">
+          <strong className="text-sm">{item.nickname}</strong>
+          <span className="ml-2 text-xs font-bold text-slate-600">{item.workDate}</span>
+          <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-bold ${REMOTE_STATUS_STYLE[item.status]}`}>{REMOTE_STATUS_LABEL[item.status]}</span>
+          {item.selfApproved && <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">본인 승인</span>}
+          <p className="mt-0.5 truncate text-xs text-slate-500">{item.reason}{item.reviewerNote ? ` · ${item.reviewerNote}` : ''}</p>
+        </div>
+        {(item.status === 'pending' || item.status === 'approved') && <div className="flex shrink-0 gap-2">
+          <button type="button" onClick={() => void decideRemote(item.id, false)} className="flex h-9 items-center gap-1 rounded-lg border border-slate-300 px-3 text-xs font-bold"><X size={14}/>{item.status === 'approved' ? '승인 취소' : '반려'}</button>
+          {item.status === 'pending' && <button type="button" onClick={() => void decideRemote(item.id, true)} className="flex h-9 items-center gap-1 rounded-lg bg-blue-600 px-3 text-xs font-bold text-white"><Check size={14}/>승인</button>}
+        </div>}
+      </li>)}</ul>}
+    </section>}
 
     {workspaceId && <AttendanceReport workspaceId={workspaceId} adminMode />}
 

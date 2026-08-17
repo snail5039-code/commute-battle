@@ -7,6 +7,7 @@ import { User, CommuteRecord, RouteGuideResponse } from '@/lib/types';
 import { generateRouteGuide } from '@/lib/gemini';
 import { recordArrival, recordInstantTrip } from '@/lib/commuteArrival';
 import { recordAttendanceEvent } from '@/lib/attendance';
+import { isRemoteApprovedToday } from '@/lib/remoteWork';
 import RouteModal from './RouteModal';
 import WeatherCard from './WeatherCard';
 import DepartureRecommendation from './DepartureRecommendation';
@@ -76,6 +77,8 @@ export default function CommuteButton({
   const [locationSharing, setLocationSharing] = useState(false);
   const [locationError, setLocationError] = useState('');
   const lastLocationSentAt = useRef(0);
+  // null = 아직 확인 중. 확인이 끝나기 전에는 기기 설정을 그대로 보여 줍니다.
+  const [remoteApproved, setRemoteApproved] = useState<boolean | null>(null);
   const storedSchedule = useStore((state) => state.workSchedule);
   const setStoredSchedule = useStore((state) => state.setWorkSchedule);
   const petId = useSelectedPetId();
@@ -164,7 +167,20 @@ export default function CommuteButton({
     return () => { active = false; window.clearTimeout(timer); if (watchId !== null) navigator.geolocation.clearWatch(watchId); };
   }, [activeRecord?.id, activeRecord?.type, user.id]);
 
-  const workday = getWorkdaySchedule(storedSchedule, now);
+  const storedWorkday = getWorkdaySchedule(storedSchedule, now);
+  // 재택은 승인된 날에만 가능하므로, 승인이 있으면 기기 설정과 무관하게 재택으로 다룹니다.
+  // 반대로 설정만 재택이고 승인이 없으면 사무실 출퇴근으로 되돌립니다(서버에서도 막힙니다).
+  const workday = remoteApproved === null || storedWorkday.mode === 'off'
+    ? storedWorkday
+    : { ...storedWorkday, mode: remoteApproved ? 'remote' : storedWorkday.mode === 'remote' ? 'office' : storedWorkday.mode } as const;
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void isRemoteApprovedToday().then((approved) => { if (active) setRemoteApproved(approved); });
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [today, records.length]);
+
   const workStartMin = timeToMinutes(workday.startTime);
   const workEndMin = timeToMinutes(workday.endTime);
   const baseRecommendation = recommendDeparture(records, weather, now);

@@ -15,6 +15,7 @@ import { mondayOfWeek } from '@/lib/date';
 import LogoutButton from './LogoutButton';
 import { loadTheme, saveTheme, type AppTheme } from '@/lib/theme';
 import DeleteAccountPanel from './DeleteAccountPanel';
+import RemoteWorkPanel from './RemoteWorkPanel';
 
 export type SettingsSectionId = 'work' | 'route' | 'appearance' | 'notifications' | 'pet' | 'ai-privacy' | 'account';
 
@@ -205,6 +206,9 @@ export default function SettingsSections(props: SettingsSectionsProps) {
         <div className="mt-5 space-y-2">{weekdays.map(({ day, label }) => { const mode = getWorkdaySchedule(props.schedule, new Date(2024, 0, day)).mode; return <div key={day} className="flex flex-col gap-2 rounded-xl bg-slate-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"><span className="text-sm font-bold">{label}요일 <span className="font-normal text-slate-400">({weekdayDateLabel(day, monday)})</span></span><div className="grid grid-cols-3 gap-1" role="group" aria-label={`${label}요일 근무 형태`}>{(['office', 'remote', 'off'] as WorkdayMode[]).map((item) => <button key={item} type="button" aria-pressed={mode === item} onClick={() => setMode(day, item)} className={`min-h-10 rounded-lg px-3 text-xs font-bold ${mode === item ? 'bg-blue-600 text-white' : 'bg-white text-slate-600'}`}>{modeLabel[item]}</button>)}</div></div>; })}</div>
         <div className="mt-6 flex flex-wrap items-center gap-3"><button type="button" onClick={props.onSave} disabled={props.saving} className="min-h-11 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white disabled:opacity-60">{props.saving ? '저장 중…' : '근무 설정 저장'}</button><p role="status" aria-live="polite" className="text-xs text-slate-600">{props.status}</p></div>
       </section>}
+
+      {/* 요일별 '재택' 설정은 이 기기 표시용이고, 실제 재택 기록은 아래 승인을 받아야 합니다. */}
+      {active === 'work' && <RemoteWorkPanel />}
 
       {active === 'route' && <section id="route" aria-labelledby="route-title" className="card p-5 md:p-7"><h2 id="route-title" className="text-lg font-bold">경로 설정</h2><p className="mt-1 text-sm text-slate-500">추천 우선순위와 선택 기록 학습 여부를 정합니다.</p><fieldset className="mt-6"><legend className="text-sm font-bold">경로 선호</legend><div className="mt-3 grid gap-2 sm:grid-cols-3">{([['fastest','빠른 경로'],['least-walking','적은 도보'],['fewest-transfers','적은 환승']] as const).map(([value, label]) => <label key={value} className={`flex min-h-12 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm font-semibold ${preference === value ? 'border-blue-500 bg-blue-50 text-blue-800' : 'border-slate-200'}`}><input type="radio" name="route-preference" checked={preference === value} onChange={() => { setPreference(value); saveRoutePreference(value); setLocalStatus('경로 선호를 저장했습니다.'); }}/>{label}</label>)}</div></fieldset>
         <label className="mt-6 flex items-start justify-between gap-4 rounded-xl bg-slate-50 p-4"><span><span className="block text-sm font-bold">선택 경로 학습</span><span className="mt-1 block text-xs leading-5 text-slate-500">최근 선택을 이 기기에 저장해 다음 추천에 반영합니다.</span></span><input type="checkbox" checked={learning} onChange={(event) => { setLearning(event.target.checked); setRouteLearningEnabled(event.target.checked); }} className="mt-1 size-5"/></label><div className="mt-5"><ConfirmAction label="학습 기록 초기화" confirmLabel="기록 초기화" onConfirm={() => { clearRouteLearning(); setLocalStatus('경로 학습 기록을 초기화했습니다.'); }}/></div>
