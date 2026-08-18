@@ -7,12 +7,12 @@ import PwaRegistration from '@/components/PwaRegistration';
 export const metadata: Metadata = {
   title: '출퇴근 생존일지',
   description: '매일의 출퇴근을 기록하고 캐릭터와 함께 성장하세요.',
-  applicationName: '출퇴근 배틀',
+  applicationName: '출퇴근 생존일지',
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: '출퇴근 배틀',
+    title: '출퇴근 생존일지',
   },
   icons: {
     icon: '/icons/app-icon.svg',

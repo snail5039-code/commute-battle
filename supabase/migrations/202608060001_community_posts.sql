@@ -18,7 +18,7 @@ drop policy if exists "authenticated users create their own posts" on public.com
 create policy "authenticated users create their own posts" on public.community_posts for insert to authenticated with check (category in ('free', 'feedback') and author_id = auth.uid());
 
 insert into public.community_posts (id, category, title, content, author_id, created_at) values
-('10000000-0000-4000-8000-000000000001','notice','출퇴근 배틀 커뮤니티에 오신 것을 환영합니다','출퇴근 경험과 유용한 정보를 편안하게 나누는 공간입니다. 서로를 배려하는 표현으로 즐겁게 참여해 주세요.',null,'2026-08-05T00:00:00Z'),
+('10000000-0000-4000-8000-000000000001','notice','출퇴근 생존일지 커뮤니티에 오신 것을 환영합니다','출퇴근 경험과 유용한 정보를 편안하게 나누는 공간입니다. 서로를 배려하는 표현으로 즐겁게 참여해 주세요.',null,'2026-08-05T00:00:00Z'),
 ('10000000-0000-4000-8000-000000000002','notice','게시판이 모든 기기에서 공유됩니다','자유게시판과 의견수렴에 작성한 글은 서버에 저장되어 다른 사용자와 공유됩니다.',null,'2026-08-04T00:00:00Z'),
 ('10000000-0000-4000-8000-000000000003','notice','커뮤니티 이용 기본 안내','개인정보, 정확한 집 주소, 연락처처럼 민감한 정보는 작성하지 마세요. 다른 이용자를 배려해 주세요.',null,'2026-08-03T00:00:00Z'),
 ('10000000-0000-4000-8000-000000000004','notice','서비스 아이디어를 의견수렴에 남겨주세요','추가되었으면 하는 기능이나 불편했던 점이 있다면 의견수렴 분류에 남겨 주세요.',null,'2026-08-02T00:00:00Z'),

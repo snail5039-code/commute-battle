@@ -4,8 +4,8 @@ import PwaInstallGuide from '@/components/PwaInstallGuide';
 import TopBar from '@/components/TopBar';
 
 export const metadata: Metadata = {
-  title: '앱 설치 방법 | 출퇴근 배틀',
-  description: 'Android, iPhone, iPad, 데스크톱에서 출퇴근 배틀을 설치하는 방법을 확인하세요.',
+  title: '앱 설치 방법 | 출퇴근 생존일지',
+  description: 'Android, iPhone, iPad, 데스크톱에서 출퇴근 생존일지을 설치하는 방법을 확인하세요.',
 };
 
 export default function InstallPage() {

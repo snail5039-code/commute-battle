@@ -48,7 +48,7 @@ export default function PwaInstallPrompt() {
             <p className="flex-1 font-extrabold">홈 화면에서 바로 시작하세요</p>
             <button type="button" aria-label="설치 안내 닫기" onClick={() => setClosed(true)} className="-mr-2 -mt-2 min-h-10 min-w-10 rounded-lg text-xl text-slate-500 hover:bg-slate-100">×</button>
           </div>
-          <p className="mt-1 text-sm leading-5 text-slate-600">{manualHelp && !pwa.canPrompt ? 'Safari의 공유 버튼을 누른 뒤 ‘홈 화면에 추가’를 선택하세요.' : '출퇴근 배틀을 앱처럼 빠르게 열 수 있어요.'}</p>
+          <p className="mt-1 text-sm leading-5 text-slate-600">{manualHelp && !pwa.canPrompt ? 'Safari의 공유 버튼을 누른 뒤 ‘홈 화면에 추가’를 선택하세요.' : '출퇴근 생존일지을 앱처럼 빠르게 열 수 있어요.'}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {pwa.canPrompt && <button type="button" onClick={() => void install()} className="min-h-10 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700">설치하기</button>}
             <Link href="/install" onClick={() => setClosed(true)} className="inline-flex min-h-10 items-center rounded-xl px-3 text-sm font-semibold text-blue-700 hover:bg-blue-50">설치 방법</Link>

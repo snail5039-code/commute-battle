@@ -7,7 +7,7 @@ import { Download, Monitor, Smartphone } from 'lucide-react';
 const guides: Array<{ platform: PwaPlatform; title: string; label: string; steps: string[] }> = [
   { platform: 'android', title: 'Android · Chrome', label: 'Android', steps: ['Chrome에서 이 페이지를 엽니다.', '상단의 설치하기 버튼 또는 브라우저 메뉴(⋮)를 누릅니다.', '‘앱 설치’ 또는 ‘홈 화면에 추가’를 선택합니다.'] },
   { platform: 'ios', title: 'iPhone · iPad', label: 'iOS', steps: ['Safari에서 이 페이지를 엽니다.', '하단 또는 상단의 공유 버튼(□↑)을 누릅니다.', '‘홈 화면에 추가’를 선택하고 ‘추가’를 누릅니다.'] },
-  { platform: 'desktop', title: '데스크톱 · Chrome/Edge', label: '데스크톱', steps: ['Chrome 또는 Edge에서 이 페이지를 엽니다.', '주소창 오른쪽의 설치 아이콘을 누르거나 브라우저 메뉴를 엽니다.', '‘출퇴근 배틀 설치’를 선택해 확인합니다.'] },
+  { platform: 'desktop', title: '데스크톱 · Chrome/Edge', label: '데스크톱', steps: ['Chrome 또는 Edge에서 이 페이지를 엽니다.', '주소창 오른쪽의 설치 아이콘을 누르거나 브라우저 메뉴를 엽니다.', '‘출퇴근 생존일지 설치’를 선택해 확인합니다.'] },
 ];
 
 const WINDOWS_INSTALLER_URL = 'https://github.com/snail5039-code/commute-battle/releases/download/v0.1.0/Commute.Battle.Setup.0.1.0.exe';
