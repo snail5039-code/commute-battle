@@ -257,7 +257,7 @@ export default function CommuteButton({
   };
 
   const recordSimpleEvent = async (
-    type: 'early_leave' | 'vacation' | 'absence'
+    type: 'early_leave' | 'absence'
   ) => {
     setLoadingAction(type);
     try {
@@ -476,14 +476,14 @@ export default function CommuteButton({
             {loadingAction === 'early_leave' ? '기록 중...' : earlyLeaveCount > 0 ? '조퇴 완료' : '조퇴'}
           </button>
 
+          {/* 휴가는 신청 → 승인으로만 잡히고, 승인되면 서버가 그 기간의 근무일에 기록을 만듭니다.
+              여기서 직접 만들 수 있게 두면 승인 없는 휴가가 다시 생깁니다. 신청 화면으로 보냅니다. */}
           <button
-            onClick={() => recordSimpleEvent('vacation')}
-            disabled={!!loadingAction || vacationCount > 0 || returnCount > 0 || workday.mode === 'off'}
-            title={workday.mode === 'off' ? '오늘은 휴무일이에요' : returnCount > 0 ? '퇴근 후에는 휴가를 기록할 수 없어요' : vacationCount > 0 ? '휴가는 하루에 한 번만 기록할 수 있어요' : undefined}
-            className="flex items-center justify-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 py-2.5 text-[12px] font-bold text-teal-700 transition-colors hover:bg-teal-100 disabled:opacity-50"
+            onClick={() => router.push('/settings#leave')}
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 py-2.5 text-[12px] font-bold text-teal-700 transition-colors hover:bg-teal-100"
           >
             <span className="flex size-7 items-center justify-center rounded-lg bg-white text-teal-700 ring-1 ring-teal-100"><Palmtree size={15} strokeWidth={2.25} /></span>
-            {loadingAction === 'vacation' ? '기록 중...' : vacationCount > 0 ? '휴가 완료' : '휴가'}
+            {vacationCount > 0 ? '휴가 중' : '휴가 신청'}
           </button>
         </div>
       </div>
