@@ -7,7 +7,7 @@
 -- 의존하지 않는다 — 합성 유저·워크스페이스를 트랜잭션 안에서 만들어 쓰고 같이 사라진다.
 --
 -- 결과는 예외 메시지로 나온다:
---   성공 → "TEST_RESULT: 통과 213 / 실패 0 OK"
+--   성공 → "TEST_RESULT: 통과 216 / 실패 0 OK"
 --   실패 → 실패한 항목이 '기대=… 실제=…' 형태로 함께 나온다.
 --
 -- 왜 SQL 테스트인가: 임금에 영향을 주는 계산(근무시간·휴게·연장·야간·휴일·지각·위치 판정)이
@@ -1223,6 +1223,18 @@ begin
     then fails := array_append(fails, 'L-13 부서장이 자기 부서원 휴가를 못 봄'); end if;
   if exists (select 1 from jsonb_array_elements(lst) item where item->>'userId' = admin2::text)
     then fails := array_append(fails, 'L-13 ★ 부서장이 다른 부서 휴가를 봄'); end if;
+
+  -- L-13b. 연차 '잔여'도 같은 범위로 보여야 한다.
+  --        0005에서 여기를 빠뜨려, 부서장이 며칠 남았는지 모르는 채 승인 버튼을 눌러야 했다.
+  --        잔여를 모르면 승인이 판단이 아니라 통과 도장이 된다.
+  checks := checks + 3;
+  lst := public.get_leave_balance(ws, lv_year, null);
+  if not exists (select 1 from jsonb_array_elements(lst) item where item->>'userId' = uid::text)
+    then fails := array_append(fails, 'L-13b 부서장이 부서원의 연차 잔여를 못 봄'); end if;
+  if not exists (select 1 from jsonb_array_elements(lst) item where item->>'userId' = outsider::text)
+    then fails := array_append(fails, 'L-13b 부서장 본인의 연차 잔여가 안 보임'); end if;
+  if exists (select 1 from jsonb_array_elements(lst) item where item->>'userId' = admin2::text)
+    then fails := array_append(fails, 'L-13b ★ 부서장이 다른 부서의 연차 잔여를 봄'); end if;
 
   -- L-14. ★ 부서장이 되어도 조직을 건드리지는 못한다.
   --       사용자 지시(2026-08-18): 직급 부여는 관리자 전용. 승인 권한을 줬다고 조직까지 열리면
