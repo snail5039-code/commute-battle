@@ -7,14 +7,14 @@
 -- 의존하지 않는다 — 합성 유저·워크스페이스를 트랜잭션 안에서 만들어 쓰고 같이 사라진다.
 --
 -- 결과는 예외 메시지로 나온다:
---   성공 → "TEST_RESULT: 통과 126 / 실패 0 OK"
+--   성공 → "TEST_RESULT: 통과 144 / 실패 0 OK"
 --   실패 → 실패한 항목이 '기대=… 실제=…' 형태로 함께 나온다.
 --
 -- 왜 SQL 테스트인가: 임금에 영향을 주는 계산(근무시간·휴게·연장·야간·휴일·지각·위치 판정)이
 -- 전부 Postgres 함수 안에 있다. JS 테스트로는 한 줄도 못 덮는다.
 --
 -- 구간: A 근무시간 · B 자정 넘김 · C 근무일 귀속 · D 기록 RPC · E 위치 인증 · F 권한 ·
---       G 공휴일 · H 월 마감 · I 휴가·연차
+--       G 공휴일 · H 월 마감 · I 휴가·연차 · J 공휴일 자동 갱신
 --
 -- 케이스를 추가할 때 지킬 것 세 가지 (전부 실제로 당해서 적는다):
 --   1) 실패 메시지를 넣을 땐 `array_append(fails, ...)`를 쓴다. `fails || '문자열'`은 리터럴 타입이
@@ -34,6 +34,8 @@ declare
   lv_mon date; lv_mon2 date; lv_year integer;
   lv_request uuid; lv_half uuid; lv_pending uuid;
   lv_balance jsonb; lv_list jsonb;
+  -- J 구간(공휴일 자동 갱신)도 오늘이 몇 년 몇 월인지에 따라 대상이 달라진다
+  hs_year integer; hs_expected integer; hs_due jsonb; hs_list jsonb;
   ws uuid;
   fails text[] := '{}';
   checks int := 0;
@@ -746,6 +748,123 @@ begin
     then fails := array_append(fails, 'I-24 set_leave_grant가 anon에게 열려 있음'); end if;
   if has_function_privilege('authenticated', 'public.leave_working_days(uuid, date, date)', 'execute')
     then fails := array_append(fails, 'I-24 leave_working_days가 authenticated에게 열려 있음'); end if;
+
+  -- ════════════════════════════════════════════════════════════════════════
+  -- J. 공휴일 자동 갱신 — 언제 다시 당겨올지를 서버가 정한다
+  -- ════════════════════════════════════════════════════════════════════════
+  -- I 구간과 같은 이유로 여기도 상대 날짜를 쓴다(오늘이 몇 년 몇 월인지에 따라 대상이 달라진다).
+  delete from public.work_holiday_syncs where workspace_id = ws;
+
+  hs_year := extract(year from today)::integer;
+  -- 7월부터는 내년 것도 미리 당겨온다(특일 정보가 대개 그맘때 공개된다)
+  hs_expected := case when extract(month from today) >= 7 then 2 else 1 end;
+
+  -- J-1. 아직 아무 기록도 없으면 올해(7월 이후면 내년까지)가 대상이다
+  hs_due := public.holiday_sync_due(ws);
+  checks := checks + 2;
+  if jsonb_array_length(hs_due) <> hs_expected then
+    fails := array_append(fails, format('J-1 대상 개수: 기대=%s 실제=%s (%s)', hs_expected, jsonb_array_length(hs_due), hs_due));
+  end if;
+  if not (hs_due @> to_jsonb(hs_year)) then fails := array_append(fails, format('J-1 올해(%s)가 대상에 없음: %s', hs_year, hs_due)); end if;
+
+  -- J-2. 일반 구성원에게는 예외가 아니라 빈 배열을 준다.
+  --      이 함수는 로그인한 모두가 앱 시작 때 부른다 — 일반 구성원이 매번 오류를 보면 안 된다.
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  checks := checks + 1;
+  begin
+    hs_due := public.holiday_sync_due(ws);
+    if jsonb_array_length(hs_due) <> 0 then fails := array_append(fails, format('J-2 일반 구성원에게 대상이 보임: %s', hs_due)); end if;
+  exception when others then
+    fails := array_append(fails, 'J-2 일반 구성원에게 예외가 남: ' || sqlerrm);
+  end;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+
+  -- J-3. 쓰기는 다르다 — 일반 구성원은 기록할 수 없다
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  checks := checks + 1;
+  begin
+    perform public.record_holiday_sync(ws, hs_year, 10, true, null);
+    fails := array_append(fails, 'J-3 일반 구성원이 동기화를 기록함');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'J-3 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+
+  -- J-4. 성공을 기록하면 그 해는 대상에서 빠진다
+  perform public.record_holiday_sync(ws, hs_year, 22, true, null);
+  hs_due := public.holiday_sync_due(ws);
+  checks := checks + 1;
+  if hs_due @> to_jsonb(hs_year) then fails := array_append(fails, format('J-4 성공 후에도 올해가 대상: %s', hs_due)); end if;
+
+  -- J-5. 성공했어도 7일이 지나면 다시 확인한다.
+  --      임시공휴일(선거일 등)이 연중에 추가되기 때문이다. 한 번 받고 끝내면 영영 모른다.
+  update public.work_holiday_syncs set attempted_at = now() - interval '8 days'
+  where workspace_id = ws and year = hs_year;
+  hs_due := public.holiday_sync_due(ws);
+  checks := checks + 1;
+  if not (hs_due @> to_jsonb(hs_year)) then fails := array_append(fails, format('J-5 8일 지났는데 대상이 아님: %s', hs_due)); end if;
+
+  -- J-6. 6일밖에 안 지났으면 아직 아니다 (앱 열 때마다 두드리면 안 된다)
+  update public.work_holiday_syncs set attempted_at = now() - interval '6 days'
+  where workspace_id = ws and year = hs_year;
+  hs_due := public.holiday_sync_due(ws);
+  checks := checks + 1;
+  if hs_due @> to_jsonb(hs_year) then fails := array_append(fails, format('J-6 6일 만에 또 대상이 됨: %s', hs_due)); end if;
+
+  -- J-7. 한 번도 성공 못 했으면 제동이 더 짧다 — 하루 뒤 재시도.
+  --      (키가 빠졌거나 API가 죽었을 때 하루에 한 번씩만 두드린다)
+  delete from public.work_holiday_syncs where workspace_id = ws;
+  perform public.record_holiday_sync(ws, hs_year, 0, false, '공휴일 API 키가 없습니다');
+  hs_due := public.holiday_sync_due(ws);
+  checks := checks + 1;
+  if hs_due @> to_jsonb(hs_year) then fails := array_append(fails, format('J-7 실패 직후에 또 대상이 됨: %s', hs_due)); end if;
+
+  update public.work_holiday_syncs set attempted_at = now() - interval '25 hours'
+  where workspace_id = ws and year = hs_year;
+  hs_due := public.holiday_sync_due(ws);
+  checks := checks + 1;
+  if not (hs_due @> to_jsonb(hs_year)) then fails := array_append(fails, format('J-7 실패 후 하루 지났는데 대상이 아님: %s', hs_due)); end if;
+
+  -- J-8. 실패해도 지난 성공 기록은 지우지 않는다.
+  --      "마지막으로 성공한 게 언제인가"가 관리자에게 필요한 정보다.
+  delete from public.work_holiday_syncs where workspace_id = ws;
+  perform public.record_holiday_sync(ws, hs_year, 22, true, null);
+  perform public.record_holiday_sync(ws, hs_year, 0, false, '특일정보 응답 오류');
+  checks := checks + 3;
+  if (select s.succeeded_at from public.work_holiday_syncs s where s.workspace_id = ws and s.year = hs_year) is null
+    then fails := array_append(fails, 'J-8 실패 기록이 지난 성공 시각을 지움'); end if;
+  if (select s.imported_count from public.work_holiday_syncs s where s.workspace_id = ws and s.year = hs_year) <> 22
+    then fails := array_append(fails, 'J-8 실패 기록이 지난 건수를 덮어씀'); end if;
+  if (select s.note from public.work_holiday_syncs s where s.workspace_id = ws and s.year = hs_year) <> '특일정보 응답 오류'
+    then fails := array_append(fails, 'J-8 실패 사유가 안 남음'); end if;
+
+  -- J-9. 연도 범위 밖은 거부
+  checks := checks + 1;
+  begin
+    perform public.record_holiday_sync(ws, 1999, 0, true, null);
+    fails := array_append(fails, 'J-9 1999년이 기록됨');
+  exception when others then
+    if sqlerrm not like '%연도가 올바르지 않%' then fails := array_append(fails, 'J-9 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- J-10. 현황 목록이 관리자 화면에 필요한 값을 준다
+  hs_list := public.list_holiday_syncs(ws);
+  select item into d from jsonb_array_elements(hs_list) item where (item->>'year')::int = hs_year;
+  checks := checks + 2;
+  if d is null then fails := array_append(fails, 'J-10 현황에 올해 행이 없음');
+  else
+    if (d->>'importedCount')::int <> 22 then fails := array_append(fails, format('J-10 건수: 기대=22 실제=%s', d->>'importedCount')); end if;
+    if d->>'succeededAt' is null then fails := array_append(fails, 'J-10 성공 시각이 안 보임'); end if;
+  end if;
+
+  -- J-11. 권한 — 앱에서 부르는 함수는 anon에게 닫혀 있어야 한다
+  checks := checks + 3;
+  if has_function_privilege('anon', 'public.holiday_sync_due(uuid)', 'execute')
+    then fails := array_append(fails, 'J-11 holiday_sync_due가 anon에게 열려 있음'); end if;
+  if has_function_privilege('anon', 'public.record_holiday_sync(uuid, integer, integer, boolean, text)', 'execute')
+    then fails := array_append(fails, 'J-11 record_holiday_sync가 anon에게 열려 있음'); end if;
+  if has_function_privilege('anon', 'public.list_holiday_syncs(uuid)', 'execute')
+    then fails := array_append(fails, 'J-11 list_holiday_syncs가 anon에게 열려 있음'); end if;
 
   -- ── 결과 ──────────────────────────────────────────────────────────────────
   if array_length(fails, 1) is null then

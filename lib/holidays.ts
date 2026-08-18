@@ -178,3 +178,79 @@ export async function fetchHolidayOn(date: string): Promise<WorkHoliday | null> 
   const items = await fetchHolidays(workspaceId, date, date).catch(() => []);
   return items[0] ?? null;
 }
+
+// ── 매년 자동 갱신 ────────────────────────────────────────────────────────────
+// 관리자가 매년 '공공데이터 불러오기'를 눌러야만 채워지던 것을, 관리자가 앱을 열 때
+// 서버가 알아서 채우도록 했습니다(202608180003). 언제 무엇을 당겨올지는 서버가 정합니다 —
+// 기기 시계나 localStorage를 믿으면 기기마다 따로 놀고, 시크릿창에서 매번 다시 돕니다.
+
+export interface HolidaySyncRecord {
+  year: number;
+  attemptedAt: string;
+  succeededAt: string | null;
+  importedCount: number;
+  note: string | null;
+}
+
+// 관리자가 아니면 예외가 아니라 빈 배열이 옵니다. 이 함수는 로그인한 모두가 부릅니다.
+export async function holidaySyncDue(workspaceId: string): Promise<number[]> {
+  const { data, error } = await supabase.rpc('holiday_sync_due', { target_workspace_id: workspaceId });
+  if (error) throw rpcError(error, '공휴일 갱신 대상을 확인하지 못했습니다.');
+  return ((data ?? []) as number[]).map(Number);
+}
+
+export async function recordHolidaySync(
+  workspaceId: string, year: number, imported: number, ok: boolean, note?: string | null
+): Promise<void> {
+  const { error } = await supabase.rpc('record_holiday_sync', {
+    target_workspace_id: workspaceId, target_year: year, imported, ok, note: note ?? null,
+  });
+  if (error) throw rpcError(error, '공휴일 갱신 결과를 기록하지 못했습니다.');
+}
+
+export async function listHolidaySyncs(workspaceId: string): Promise<HolidaySyncRecord[]> {
+  const { data, error } = await supabase.rpc('list_holiday_syncs', { target_workspace_id: workspaceId });
+  if (error) throw rpcError(error, '공휴일 갱신 이력을 불러오지 못했습니다.');
+  return (data ?? []) as HolidaySyncRecord[];
+}
+
+export interface HolidaySyncOutcome { year: number; imported: number }
+
+// 자리를 맡아 둔 동안 남겨 두는 표시. 관리자 화면이 '실패'와 구분하려고 이 값을 봅니다.
+export const RUNNING_NOTE = '가져오는 중';
+
+// 조용히 돕니다. 실패해도 화면에 오류를 띄우지 않습니다 — 사용자가 요청한 적 없는 작업이고,
+// 서버가 하루 뒤 다시 시도하게 잡아 둡니다. 무슨 일이 있었는지는 /admin 공휴일 카드에 나옵니다.
+export async function syncHolidaysIfDue(workspaceId: string): Promise<HolidaySyncOutcome[]> {
+  const years = await holidaySyncDue(workspaceId).catch(() => [] as number[]);
+  const done: HolidaySyncOutcome[] = [];
+
+  for (const year of years) {
+    // 가져오기 전에 자리를 맡아 둡니다. 여기서 창이 닫혀도 시도 시각이 남아,
+    // 다음 접속 때 곧바로 또 두드리지 않습니다. 실패에도 제동이 걸려야 합니다.
+    try {
+      await recordHolidaySync(workspaceId, year, 0, false, RUNNING_NOTE);
+    } catch {
+      return done;  // 관리자가 아니거나 서버가 막았습니다. 더 진행할 이유가 없습니다.
+    }
+
+    try {
+      const fetched = await fetchPublicHolidays(year);
+      if (!fetched.length) {
+        // 내년 특일 정보는 대개 7월쯤 공개됩니다. 그전까지는 빈 응답이 정상입니다.
+        await recordHolidaySync(workspaceId, year, 0, false, `${year}년 공휴일이 아직 공개되지 않았습니다.`);
+        continue;
+      }
+      const saved = await saveHolidays(workspaceId, fetched, 'public_api', false);
+      await recordHolidaySync(workspaceId, year, saved, true, null);
+      done.push({ year, imported: saved });
+    } catch (cause) {
+      await recordHolidaySync(
+        workspaceId, year, 0, false,
+        cause instanceof Error ? cause.message : '공휴일을 불러오지 못했습니다.'
+      ).catch(() => {});
+    }
+  }
+
+  return done;
+}

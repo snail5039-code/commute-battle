@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, CloudDownload, LoaderCircle, Plus, Trash2, Upload } from 'lucide-react';
 import {
-  deleteHoliday, decodeCsv, fetchHolidays, fetchPublicHolidays, parseHolidayCsv, saveHolidays,
-  SOURCE_LABEL, type WorkHoliday,
+  deleteHoliday, decodeCsv, fetchHolidays, fetchPublicHolidays, listHolidaySyncs, parseHolidayCsv,
+  RUNNING_NOTE, saveHolidays, SOURCE_LABEL, type HolidaySyncRecord, type WorkHoliday,
 } from '@/lib/holidays';
 
 // 휴일은 토·일에 더해 여기 등록된 날짜입니다. 휴일에 근무하면 휴일근로로 잡히고
@@ -23,6 +23,7 @@ export default function HolidayPanel({ workspaceId, year, onChanged }: {
 }) {
   const [target, setTarget] = useState(year);
   const [items, setItems] = useState<WorkHoliday[]>([]);
+  const [syncs, setSyncs] = useState<HolidaySyncRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -41,6 +42,8 @@ export default function HolidayPanel({ workspaceId, year, onChanged }: {
       setItems([]);
       setError(cause instanceof Error ? cause.message : '공휴일을 불러오지 못했습니다.');
     } finally { setLoading(false); }
+    // 자동 갱신 이력은 없어도 화면이 굴러가야 하므로 실패해도 조용히 넘깁니다.
+    setSyncs(await listHolidaySyncs(workspaceId).catch(() => []));
   }, [workspaceId, range.from, range.to]);
 
   useEffect(() => { const timer = setTimeout(() => { void load(); }, 0); return () => clearTimeout(timer); }, [load]);
@@ -110,6 +113,28 @@ export default function HolidayPanel({ workspaceId, year, onChanged }: {
   };
 
   const years = [year - 1, year, year + 1];
+
+  // 선택한 해가 마지막으로 언제 자동으로 채워졌는지. 실패했으면 사유까지 보여 줍니다 —
+  // 키가 빠졌거나 API가 죽었을 때 관리자가 알아야 손을 쓸 수 있습니다.
+  const syncStatus = useMemo(() => {
+    const record = syncs.find((item) => item.year === target);
+    if (!record) return '';
+    const when = (value: string) => new Date(value).toLocaleString('ko-KR', {
+      year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+    // 가져오는 중에는 자리만 맡아 둔 상태(note='가져오는 중', 성공 아님)로 잠깐 남습니다.
+    const running = record.note === RUNNING_NOTE;
+    const failure = running ? '' : record.note;
+
+    if (record.succeededAt) {
+      const base = `${target}년 자동 갱신: ${when(record.succeededAt)}에 ${record.importedCount}건을 새로 등록했습니다.`;
+      // 마지막 시도가 실패였다면 성공 이력과 함께 알려 줍니다. 성공 기록만 보이면
+      // 지금 갱신이 멈춰 있다는 걸 눈치챌 수 없습니다.
+      return failure ? `${base} (이후 시도 실패: ${failure})` : base;
+    }
+    if (running) return `${target}년 공휴일을 지금 가져오고 있습니다.`;
+    return `${target}년 자동 갱신이 아직 성공하지 못했습니다${failure ? ` — ${failure}` : ''}.`;
+  }, [syncs, target]);
 
   return (
     <section className="card overflow-hidden">
@@ -185,10 +210,18 @@ export default function HolidayPanel({ workspaceId, year, onChanged }: {
         </ul>
       )}
 
-      <p className="border-t border-slate-100 px-5 py-3 text-[11px] text-slate-400">
-        출처는 한국천문연구원 특일 정보(공공데이터포털)입니다. 다시 불러와도 <strong>이미 등록된 날짜는 덮어쓰지 않습니다</strong> —
-        직접 손본 이름과 자체 휴일이 그대로 남습니다. 우리 회사는 정상 근무하는 날이면 목록에서 지우면 됩니다.
-      </p>
+      <div className="border-t border-slate-100 px-5 py-3">
+        <p className="text-[11px] text-slate-400">
+          출처는 한국천문연구원 특일 정보(공공데이터포털)입니다. 다시 불러와도 <strong>이미 등록된 날짜는 덮어쓰지 않습니다</strong> —
+          직접 손본 이름과 자체 휴일이 그대로 남습니다. 우리 회사는 정상 근무하는 날이면 목록에서 지우면 됩니다.
+        </p>
+        <p className="mt-2 text-[11px] text-slate-400">
+          <strong className="text-slate-500">자동 갱신</strong> — 관리자가 앱을 열면 올해 공휴일을 알아서 채우고,
+          7월부터는 내년 것도 미리 당겨옵니다. 성공한 뒤에도 7일마다 다시 확인합니다
+          (<strong>임시공휴일은 연중에 추가</strong>되기 때문입니다). 아래 버튼은 지금 당장 받고 싶을 때만 쓰면 됩니다.
+        </p>
+        {syncStatus && <p className="mt-2 text-[11px] font-semibold text-slate-500">{syncStatus}</p>}
+      </div>
     </section>
   );
 }
