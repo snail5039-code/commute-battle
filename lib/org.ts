@@ -14,6 +14,10 @@ export interface OrgDepartment {
   name: string;
   sortOrder: number;
   memberCount: number;
+  // 부서장은 직급에서 유도하지 않고 관리자가 명시적으로 지정합니다(202608180005).
+  // 직급이 권한이 되면 권한이 어디서 왔는지 아무도 설명하지 못하게 됩니다.
+  headUserId: string | null;
+  headNickname: string | null;
 }
 
 export interface OrgPosition {
@@ -32,15 +36,19 @@ export interface OrgMember {
   positionId: string | null;
   positionName: string | null;
   positionRank: number | null;
+  isDepartmentHead: boolean;
 }
 
 export interface Org {
   departments: OrgDepartment[];
   positions: OrgPosition[];
   members: OrgMember[];
+  // 내가 이 워크스페이스에서 부서장인가. 화면이 '부서장 메뉴'를 보여줄지 정할 때 씁니다
+  // (판정 자체는 서버가 하고, 승인 RPC가 다시 확인합니다 — 화면 값은 표시용일 뿐입니다).
+  iAmHead: boolean;
 }
 
-export const EMPTY_ORG: Org = { departments: [], positions: [], members: [] };
+export const EMPTY_ORG: Org = { departments: [], positions: [], members: [], iAmHead: false };
 
 function rpcError(cause: { code?: string; message?: string }, fallback: string) {
   if (cause.code === 'PGRST202') return new Error('조직 서버 설정(202608180004 마이그레이션)이 아직 적용되지 않았습니다.');
@@ -84,6 +92,16 @@ export async function savePosition(
 export async function deletePosition(workspaceId: string, id: string): Promise<void> {
   const { error } = await supabase.rpc('delete_position', { target_workspace_id: workspaceId, target_id: id });
   if (error) throw rpcError(error, '직급을 삭제하지 못했습니다.');
+}
+
+// 부서장 지정·해제. null을 넣으면 부서장이 없어집니다.
+export async function setDepartmentHead(
+  workspaceId: string, departmentId: string, headUserId: string | null
+): Promise<void> {
+  const { error } = await supabase.rpc('set_department_head', {
+    target_workspace_id: workspaceId, target_id: departmentId, new_head_user_id: headUserId,
+  });
+  if (error) throw rpcError(error, '부서장을 지정하지 못했습니다.');
 }
 
 export async function assignMemberOrg(

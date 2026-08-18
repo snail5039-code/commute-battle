@@ -1,17 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Building2, LoaderCircle, Plus, Trash2 } from 'lucide-react';
+import { Building2, LoaderCircle, Plus, Trash2, UserCog } from 'lucide-react';
 import {
   assignMemberOrg, deleteDepartment, deletePosition, EMPTY_ORG, fetchOrg,
-  saveDepartment, savePosition, UNASSIGNED, type Org,
+  saveDepartment, savePosition, setDepartmentHead, UNASSIGNED, type Org,
 } from '@/lib/org';
 
 // 부서·직급을 만들고 구성원을 배정합니다.
 //
 // 직급의 '순서'는 화면에 늘어놓는 값일 뿐 권한이 아닙니다. 무엇을 보고 무엇을 승인할 수 있는지는
-// 워크스페이스 권한(소유자/관리자/멤버)이 정합니다. 화면에도 그렇게 적어 둡니다 —
+// 워크스페이스 권한(소유자/관리자/멤버)과 **부서장 지정**이 정합니다. 화면에도 그렇게 적어 둡니다 —
 // 안 적어 두면 '부장으로 올려주면 남의 근태를 볼 수 있나?' 같은 오해가 반드시 생깁니다.
+//
+// 부서장도 직급에서 유도하지 않습니다. 여기서 사람을 골라 명시적으로 지정합니다.
 
 const ROLE_LABEL: Record<string, string> = { owner: '소유자', admin: '관리자', member: '멤버' };
 
@@ -75,7 +77,9 @@ export default function OrgPanel({ workspaceId, onChanged }: {
         <h2 className="flex items-center gap-2 font-black"><Building2 size={17} />조직 (부서·직급)</h2>
         <p className="mt-1 text-xs text-slate-500">
           근무시간 집계를 부서별로 볼 수 있게 됩니다. <strong>직급은 권한이 아닙니다</strong> —
-          무엇을 보고 승인할 수 있는지는 위의 워크스페이스 권한(소유자·관리자·멤버)이 정합니다.
+          승인 권한은 워크스페이스 권한(소유자·관리자·멤버)과 아래에서 지정하는 <strong>부서장</strong>이 정합니다.
+          부서장은 자기 부서원의 근태 정정·재택·휴가를 승인하고 근무시간을 볼 수 있습니다
+          (자기 기록의 정정은 여전히 스스로 승인하지 못합니다).
         </p>
       </header>
 
@@ -105,19 +109,31 @@ export default function OrgPanel({ workspaceId, onChanged }: {
             ) : (
               <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200">
                 {org.departments.map((item) => (
-                  <li key={item.id} className="flex items-center gap-2 px-3 py-2">
-                    <input defaultValue={item.name} maxLength={40} aria-label={`${item.name} 이름`}
-                      onBlur={(event) => {
-                        const next = event.target.value.trim();
-                        if (next && next !== item.name) void run(item.id, () => saveDepartment(workspaceId, item.id, next, item.sortOrder));
-                      }}
-                      className="min-w-0 flex-1 rounded border border-transparent px-1.5 py-1 text-sm hover:border-slate-200 focus:border-slate-300" />
-                    <span className="shrink-0 text-[11px] text-slate-400">{item.memberCount}명</span>
-                    <button type="button" onClick={() => void run(item.id, () => deleteDepartment(workspaceId, item.id))}
-                      disabled={!!busy} aria-label={`${item.name} 삭제`}
-                      className="shrink-0 rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40">
-                      {busy === item.id ? <LoaderCircle size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                    </button>
+                  <li key={item.id} className="px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <input defaultValue={item.name} maxLength={40} aria-label={`${item.name} 이름`}
+                        onBlur={(event) => {
+                          const next = event.target.value.trim();
+                          if (next && next !== item.name) void run(item.id, () => saveDepartment(workspaceId, item.id, next, item.sortOrder));
+                        }}
+                        className="min-w-0 flex-1 rounded border border-transparent px-1.5 py-1 text-sm hover:border-slate-200 focus:border-slate-300" />
+                      <span className="shrink-0 text-[11px] text-slate-400">{item.memberCount}명</span>
+                      <button type="button" onClick={() => void run(item.id, () => deleteDepartment(workspaceId, item.id))}
+                        disabled={!!busy} aria-label={`${item.name} 삭제`}
+                        className="shrink-0 rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40">
+                        {busy === item.id ? <LoaderCircle size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      </button>
+                    </div>
+                    <label className="mt-1 flex items-center gap-1.5 pl-1.5 text-[11px] text-slate-500">
+                      <UserCog size={13} className="shrink-0" />부서장
+                      <select value={item.headUserId ?? ''} disabled={!!busy}
+                        aria-label={`${item.name} 부서장`}
+                        onChange={(event) => void run(item.id, () => setDepartmentHead(workspaceId, item.id, event.target.value || null))}
+                        className="h-7 min-w-0 flex-1 rounded border border-slate-200 px-1 text-[11px] font-bold disabled:opacity-40">
+                        <option value="">없음</option>
+                        {org.members.map((m) => <option key={m.userId} value={m.userId}>{m.nickname}</option>)}
+                      </select>
+                    </label>
                   </li>
                 ))}
               </ul>
@@ -190,7 +206,12 @@ export default function OrgPanel({ workspaceId, onChanged }: {
               <tbody className="divide-y divide-slate-100">
                 {org.members.map((member) => (
                   <tr key={member.userId}>
-                    <td className="py-2 pr-3 font-bold text-slate-950">{member.nickname}</td>
+                    <td className="py-2 pr-3 font-bold text-slate-950">
+                      {member.nickname}
+                      {member.isDepartmentHead && (
+                        <span className="ml-1.5 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">부서장</span>
+                      )}
+                    </td>
                     <td className="py-2 pr-3 text-xs text-slate-500">{ROLE_LABEL[member.role] ?? member.role}</td>
                     <td className="py-2 pr-3">
                       <select value={member.departmentId ?? ''} disabled={!!busy}

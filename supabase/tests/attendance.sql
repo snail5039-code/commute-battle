@@ -7,14 +7,15 @@
 -- 의존하지 않는다 — 합성 유저·워크스페이스를 트랜잭션 안에서 만들어 쓰고 같이 사라진다.
 --
 -- 결과는 예외 메시지로 나온다:
---   성공 → "TEST_RESULT: 통과 169 / 실패 0 OK"
+--   성공 → "TEST_RESULT: 통과 195 / 실패 0 OK"
 --   실패 → 실패한 항목이 '기대=… 실제=…' 형태로 함께 나온다.
 --
 -- 왜 SQL 테스트인가: 임금에 영향을 주는 계산(근무시간·휴게·연장·야간·휴일·지각·위치 판정)이
 -- 전부 Postgres 함수 안에 있다. JS 테스트로는 한 줄도 못 덮는다.
 --
 -- 구간: A 근무시간 · B 자정 넘김 · C 근무일 귀속 · D 기록 RPC · E 위치 인증 · F 권한 ·
---       G 공휴일 · H 월 마감 · I 휴가·연차 · J 공휴일 자동 갱신 · K 조직(부서·직급)
+--       G 공휴일 · H 월 마감 · I 휴가·연차 · J 공휴일 자동 갱신 · K 조직(부서·직급) ·
+--       L 승인 라인(부서장)
 --
 -- 케이스를 추가할 때 지킬 것 세 가지 (전부 실제로 당해서 적는다):
 --   1) 실패 메시지를 넣을 땐 `array_append(fails, ...)`를 쓴다. `fails || '문자열'`은 리터럴 타입이
@@ -38,6 +39,11 @@ declare
   hs_year integer; hs_expected integer; hs_due jsonb; hs_list jsonb;
   ws2 uuid;  -- K 구간: 다른 워크스페이스의 부서를 붙이지 못하는지 보려면 두 번째가 필요하다
   og_dept uuid; og_dept2 uuid; og_pos uuid; og_other uuid; og_members bigint; og jsonb;
+  -- L 구간(승인 라인). d7은 H가 마감했다 해제한 2020-06과 겹치지 않는 다른 달이다.
+  lh_a uuid; lh_b uuid; lh_rec uuid; lh_rec2 uuid; lh_own uuid;
+  lh_req uuid; lh_req2 uuid; lh_own_req uuid; lh_remote uuid; lh_leave uuid; lh_leave2 uuid;
+  lst jsonb;
+  d7 date := '2020-07-01';
   ws uuid;
   fails text[] := '{}';
   checks int := 0;
@@ -1022,6 +1028,215 @@ begin
     then fails := array_append(fails, 'K-14 save_department가 anon에게 열려 있음'); end if;
   if has_function_privilege('anon', 'public.assign_member_org(uuid, uuid, uuid, uuid)', 'execute')
     then fails := array_append(fails, 'K-14 assign_member_org가 anon에게 열려 있음'); end if;
+
+  -- ════════════════════════════════════════════════════════════════════════
+  -- L. 승인 라인(부서장) — 자기 부서만, 자기 기록은 못 고침
+  -- ════════════════════════════════════════════════════════════════════════
+  -- 권한을 넓히는 변경이라 '할 수 있다'보다 **'못 한다'가 더 중요하다.**
+  -- 별 표시(★)가 붙은 케이스가 그것들이다. 하나라도 깨지면 남의 임금 자료가 새는 것이다.
+  delete from public.commute_records where user_id in (uid::text, admin2::text, outsider::text);
+  delete from public.org_departments where workspace_id = ws;
+
+  lh_a := public.save_department(ws, null, '영업팀', 10);
+  lh_b := public.save_department(ws, null, '총무팀', 11);
+  perform public.assign_member_org(ws, uid, lh_a, null);
+  perform public.assign_member_org(ws, outsider, lh_a, null);
+  perform public.assign_member_org(ws, admin2, lh_b, null);
+
+  -- 2020-07-01(수) 근무 기록. H가 마감했다 해제한 2020-06과 겹치지 않게 다른 달을 쓴다.
+  insert into public.commute_records (user_id, workspace_id, date, type, commute_subtype, start_time, end_time)
+  values (uid::text, ws, d7, 'commute', 'arrival', (d7 + time '08:00') at time zone 'Asia/Seoul', (d7 + time '09:00') at time zone 'Asia/Seoul')
+  returning id into lh_rec;
+  insert into public.commute_records (user_id, workspace_id, date, type, commute_subtype, start_time, end_time)
+  values (uid::text, ws, d7, 'return', 'arrival', (d7 + time '18:00') at time zone 'Asia/Seoul', (d7 + time '19:00') at time zone 'Asia/Seoul');
+  insert into public.commute_records (user_id, workspace_id, date, type, commute_subtype, start_time, end_time)
+  values (admin2::text, ws, d7, 'commute', 'arrival', (d7 + time '08:00') at time zone 'Asia/Seoul', (d7 + time '09:00') at time zone 'Asia/Seoul')
+  returning id into lh_rec2;
+  insert into public.commute_records (user_id, workspace_id, date, type, commute_subtype, start_time, end_time)
+  values (outsider::text, ws, d7, 'commute', 'arrival', (d7 + time '08:00') at time zone 'Asia/Seoul', (d7 + time '09:00') at time zone 'Asia/Seoul')
+  returning id into lh_own;
+
+  -- L-1. 일반 구성원은 부서장을 지정할 수 없다
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  checks := checks + 1;
+  begin
+    perform public.set_department_head(ws, lh_a, outsider);
+    fails := array_append(fails, 'L-1 일반 구성원이 부서장을 지정함');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'L-1 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+
+  -- L-2. 워크스페이스 밖의 사람은 부서장이 될 수 없다
+  checks := checks + 1;
+  begin
+    perform public.set_department_head(ws, lh_a, gen_random_uuid());
+    fails := array_append(fails, 'L-2 구성원이 아닌 사람이 부서장이 됨');
+  exception when others then
+    if sqlerrm not like '%워크스페이스 구성원이 아닙니다%' then fails := array_append(fails, 'L-2 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- 영업팀 부서장 = outsider(일반 구성원), 총무팀 부서장 = admin2(관리자 겸 부서장)
+  perform public.set_department_head(ws, lh_a, outsider);
+  perform public.set_department_head(ws, lh_b, admin2);
+
+  -- L-3. 조직도에 부서장이 보이고, 본인에게만 iAmHead가 켜진다
+  og := public.list_org(ws);
+  select item into d from jsonb_array_elements(og->'departments') item where item->>'id' = lh_a::text;
+  checks := checks + 3;
+  if d->>'headNickname' <> '일반구성원' then fails := array_append(fails, format('L-3 부서장 이름: 실제=%s', d->>'headNickname')); end if;
+  if (og->>'iAmHead')::boolean is not false then fails := array_append(fails, 'L-3 부서장이 아닌 사람에게 iAmHead가 켜짐'); end if;
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  if (public.list_org(ws)->>'iAmHead')::boolean is not true then fails := array_append(fails, 'L-3 부서장에게 iAmHead가 안 켜짐'); end if;
+
+  -- L-4. 부서장은 자기 부서원의 근무시간을 본다. 보지 않고 누르는 승인은 승인이 아니다.
+  summary := public.get_attendance_summary(ws, d7, d7);
+  checks := checks + 1;
+  if not exists (select 1 from jsonb_array_elements(summary->'days') item where item->>'userId' = uid::text)
+    then fails := array_append(fails, 'L-4 부서장이 자기 부서원 근무시간을 못 봄'); end if;
+
+  -- L-5. ★ 다른 부서 사람의 근무시간은 못 본다
+  checks := checks + 1;
+  if exists (select 1 from jsonb_array_elements(summary->'days') item where item->>'userId' = admin2::text)
+    then fails := array_append(fails, 'L-5 부서장이 다른 부서 사람의 근무시간을 봄'); end if;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+
+  -- L-6. ★ 관리자 겸 부서장이 한 사람을 골라 보면 자기 부서원이 딸려 나오지 않는다.
+  --      부서원까지 넓히는 조건에 'scope가 나 자신일 때만'이라는 단서가 없으면 여기서 샌다.
+  perform set_config('request.jwt.claim.sub', admin2::text, true);
+  summary := public.get_attendance_summary(ws, d7, d7, uid::text);
+  checks := checks + 2;
+  if not exists (select 1 from jsonb_array_elements(summary->'days') item where item->>'userId' = uid::text)
+    then fails := array_append(fails, 'L-6 관리자가 지정한 사람을 못 봄'); end if;
+  if exists (select 1 from jsonb_array_elements(summary->'days') item where item->>'userId' = admin2::text)
+    then fails := array_append(fails, 'L-6 한 사람을 골랐는데 자기 부서원이 딸려 나옴'); end if;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+
+  -- 정정 요청 세 건 (각자 자기 기록에 대해)
+  lh_req := public.request_commute_correction(lh_rec, (d7 + time '08:50') at time zone 'Asia/Seoul', null, null, '지문인식 오류');
+  perform set_config('request.jwt.claim.sub', admin2::text, true);
+  lh_req2 := public.request_commute_correction(lh_rec2, (d7 + time '08:40') at time zone 'Asia/Seoul', null, null, '총무팀 요청');
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  lh_own_req := public.request_commute_correction(lh_own, (d7 + time '08:30') at time zone 'Asia/Seoul', null, null, '부서장 본인 요청');
+
+  -- L-7. 부서장이 자기 부서원의 정정을 승인한다
+  checks := checks + 1;
+  begin
+    perform public.review_commute_correction(lh_req, true, '확인함');
+  exception when others then
+    fails := array_append(fails, 'L-7 부서장이 자기 부서원 정정을 승인 못 함: ' || sqlerrm);
+  end;
+
+  -- L-8. ★ 다른 부서 사람의 정정은 승인 못 한다
+  checks := checks + 1;
+  begin
+    perform public.review_commute_correction(lh_req2, true, null);
+    fails := array_append(fails, 'L-8 부서장이 다른 부서 정정을 승인함');
+  exception when others then
+    if sqlerrm not like '%부서장만 처리할 수 있습니다%' then fails := array_append(fails, 'L-8 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- L-9. ★★ 부서장도 자기 기록의 정정은 스스로 승인하지 못한다.
+  --      이게 뚫리면 부서장이 자기 출퇴근 시각을 마음대로 고칠 수 있고, 근태 시스템 전체가 뜻을 잃는다.
+  checks := checks + 1;
+  begin
+    perform public.review_commute_correction(lh_own_req, true, null);
+    fails := array_append(fails, 'L-9 부서장이 자기 기록 정정을 스스로 승인함');
+  exception when others then
+    if sqlerrm not like '%본인 기록의 정정은%' then fails := array_append(fails, 'L-9 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- L-10. 정정 목록: 부서장은 열 수 있고, 자기 부서 것만 보인다
+  lst := public.list_commute_corrections(ws, true);
+  checks := checks + 2;
+  if not exists (select 1 from jsonb_array_elements(lst) item where item->>'userId' = uid::text)
+    then fails := array_append(fails, 'L-10 부서장이 자기 부서 정정 요청을 못 봄'); end if;
+  if exists (select 1 from jsonb_array_elements(lst) item where item->>'userId' = admin2::text)
+    then fails := array_append(fails, 'L-10 ★ 부서장이 다른 부서 정정 요청을 봄'); end if;
+
+  -- L-11. 재택: 자기 부서원은 승인하고, 다른 부서는 못 한다
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+  lh_remote := public.request_remote_work(ws, lv_mon + 3, '재택 신청');
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  checks := checks + 1;
+  begin
+    perform public.review_remote_work(lh_remote, true, '확인');
+  exception when others then
+    fails := array_append(fails, 'L-11 부서장이 자기 부서원 재택을 승인 못 함: ' || sqlerrm);
+  end;
+
+  perform set_config('request.jwt.claim.sub', admin2::text, true);
+  lh_remote := public.request_remote_work(ws, lv_mon + 3, '남의 부서 재택');
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  checks := checks + 1;
+  begin
+    perform public.review_remote_work(lh_remote, true, null);
+    fails := array_append(fails, 'L-11 ★ 부서장이 다른 부서 재택을 승인함');
+  exception when others then
+    if sqlerrm not like '%부서장만 처리할 수 있습니다%' then fails := array_append(fails, 'L-11 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- L-12. 휴가: 승인하면 근무일에 휴가 기록이 생기고, 다른 부서는 승인 못 한다
+  --       (I 구간에서 uid의 연차를 이미 일부 썼으므로 하루짜리로 신청한다)
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+  -- lv_mon+24는 해를 넘길 수 있다. 연차 잔여는 연도별이므로 그 해 부여를 확실히 해 둔다.
+  perform public.set_leave_grant(ws, uid::text, extract(year from (lv_mon + 24))::integer, 20, null);
+  lh_leave := public.request_leave(ws, lv_mon + 24, lv_mon + 24, 'annual', '부서장 승인 확인');
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  checks := checks + 2;
+  begin
+    perform public.review_leave(lh_leave, true, '확인');
+  exception when others then
+    fails := array_append(fails, 'L-12 부서장이 자기 부서원 휴가를 승인 못 함: ' || sqlerrm);
+  end;
+  if not exists (select 1 from public.commute_records r
+                 where r.user_id = uid::text and r.type = 'vacation' and r.date = lv_mon + 24)
+    then fails := array_append(fails, 'L-12 부서장이 승인했는데 휴가 기록이 안 생김'); end if;
+
+  perform set_config('request.jwt.claim.sub', admin2::text, true);
+  perform public.set_leave_grant(ws, admin2::text, extract(year from (lv_mon + 24))::integer, 10, null);
+  lh_leave2 := public.request_leave(ws, lv_mon + 24, lv_mon + 24, 'annual', '남의 부서 휴가');
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  checks := checks + 1;
+  begin
+    perform public.review_leave(lh_leave2, true, null);
+    fails := array_append(fails, 'L-12 ★ 부서장이 다른 부서 휴가를 승인함');
+  exception when others then
+    if sqlerrm not like '%부서장만 처리할 수 있습니다%' then fails := array_append(fails, 'L-12 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- L-13. 휴가 목록도 자기 부서만 보인다
+  checks := checks + 2;
+  lst := public.list_leaves(ws, lv_mon, lv_mon + 40, false);
+  if not exists (select 1 from jsonb_array_elements(lst) item where item->>'userId' = uid::text)
+    then fails := array_append(fails, 'L-13 부서장이 자기 부서원 휴가를 못 봄'); end if;
+  if exists (select 1 from jsonb_array_elements(lst) item where item->>'userId' = admin2::text)
+    then fails := array_append(fails, 'L-13 ★ 부서장이 다른 부서 휴가를 봄'); end if;
+
+  -- L-14. 부서장에서 내리면 권한이 사라진다. 넓힌 권한은 거둘 수도 있어야 한다.
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+  perform public.set_department_head(ws, lh_a, null);
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  checks := checks + 2;
+  summary := public.get_attendance_summary(ws, d7, d7);
+  if exists (select 1 from jsonb_array_elements(summary->'days') item where item->>'userId' = uid::text)
+    then fails := array_append(fails, 'L-14 ★ 부서장에서 내렸는데 남의 근무시간이 보임'); end if;
+  begin
+    perform public.list_commute_corrections(ws, true);
+    fails := array_append(fails, 'L-14 부서장에서 내렸는데 정정 목록이 열림');
+  exception when others then
+    if sqlerrm not like '%부서장 권한이 필요합니다%' then fails := array_append(fails, 'L-14 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+
+  -- L-15. 판정 함수는 앱에서 직접 부를 수 없다 (정의자 함수 안에서만 쓴다)
+  checks := checks + 3;
+  if has_function_privilege('authenticated', 'public.is_my_department_member(uuid, text)', 'execute')
+    then fails := array_append(fails, 'L-15 is_my_department_member가 authenticated에게 열려 있음'); end if;
+  if has_function_privilege('authenticated', 'public.can_review_member(uuid, text)', 'execute')
+    then fails := array_append(fails, 'L-15 can_review_member가 authenticated에게 열려 있음'); end if;
+  if has_function_privilege('anon', 'public.set_department_head(uuid, uuid, uuid)', 'execute')
+    then fails := array_append(fails, 'L-15 set_department_head가 anon에게 열려 있음'); end if;
 
   -- ── 결과 ──────────────────────────────────────────────────────────────────
   if array_length(fails, 1) is null then

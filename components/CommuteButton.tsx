@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Clock3, Palmtree, Check, MapPin, TrainFront, House, PartyPopper, LoaderCircle, ShieldAlert, X, CalendarDays } from 'lucide-react';
+import { Clock3, Palmtree, Check, MapPin, TrainFront, House, PartyPopper, LoaderCircle, ShieldAlert, X, CalendarDays, Thermometer } from 'lucide-react';
 import { User, CommuteRecord, RouteGuideResponse } from '@/lib/types';
 import { generateRouteGuide } from '@/lib/gemini';
 import { recordArrival, recordInstantTrip } from '@/lib/commuteArrival';
@@ -105,9 +105,10 @@ export default function CommuteButton({
     .sort((a, b) => (b.start_time ?? '').localeCompare(a.start_time ?? ''))[0];
   const commuteCount = countOn(activeWorkDate, 'commute');
   const returnCount = countOn(activeWorkDate, 'return');
-  // 조퇴·휴가는 서버가 항상 오늘 날짜로 기록하므로 여기서도 오늘 기준으로 셉니다.
+  // 조퇴·병가·휴가는 서버가 항상 오늘 날짜로 기록하므로 여기서도 오늘 기준으로 셉니다.
   const earlyLeaveCount = countOn(today, 'early_leave');
   const vacationCount = countOn(today, 'vacation');
+  const sickCount = countOn(today, 'sick');
 
   useEffect(() => {
     const saved = loadWorkSchedule(user.id);
@@ -257,7 +258,7 @@ export default function CommuteButton({
   };
 
   const recordSimpleEvent = async (
-    type: 'early_leave' | 'absence'
+    type: 'early_leave' | 'sick' | 'absence'
   ) => {
     setLoadingAction(type);
     try {
@@ -465,25 +466,38 @@ export default function CommuteButton({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-2.5 pt-1">
+        <div className="grid grid-cols-3 gap-2 pt-1">
           <button
             onClick={() => recordSimpleEvent('early_leave')}
             disabled={!!loadingAction || commuteCount === 0 || earlyLeaveCount > 0 || workday.mode === 'off'}
             title={workday.mode === 'off' ? '오늘은 휴무일이에요' : commuteCount === 0 ? '출근 후에 조퇴를 기록할 수 있어요' : earlyLeaveCount > 0 ? '조퇴는 하루에 한 번만 기록할 수 있어요' : undefined}
-            className="flex items-center justify-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 py-2.5 text-[12px] font-bold text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-50"
+            className="flex min-w-0 items-center justify-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-1 py-2.5 text-[11px] font-bold text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-50"
           >
-            <span className="flex size-7 items-center justify-center rounded-lg bg-white text-amber-700 ring-1 ring-amber-100"><Clock3 size={15} strokeWidth={2.25} /></span>
-            {loadingAction === 'early_leave' ? '기록 중...' : earlyLeaveCount > 0 ? '조퇴 완료' : '조퇴'}
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-white text-amber-700 ring-1 ring-amber-100"><Clock3 size={15} strokeWidth={2.25} /></span>
+            <span className="truncate">{loadingAction === 'early_leave' ? '기록 중...' : earlyLeaveCount > 0 ? '조퇴 완료' : '조퇴'}</span>
+          </button>
+
+          {/* 병가는 조퇴·휴가와 다르게 자기신고로 둡니다. 아파서 못 나오는 건 그날 아침에 벌어지는
+              일이라, 승인을 기다려야 기록할 수 있으면 기록 자체가 늦어집니다. 연차를 깎지도 않습니다.
+              잘못 눌렀으면 근태 정정 요청으로 바로잡습니다. */}
+          <button
+            onClick={() => recordSimpleEvent('sick')}
+            disabled={!!loadingAction || sickCount > 0 || returnCount > 0 || workday.mode === 'off'}
+            title={workday.mode === 'off' ? '오늘은 휴무일이에요' : returnCount > 0 ? '퇴근한 뒤에는 병가를 기록할 수 없어요' : sickCount > 0 ? '병가는 하루에 한 번만 기록할 수 있어요' : undefined}
+            className="flex min-w-0 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-1 py-2.5 text-[11px] font-bold text-rose-700 transition-colors hover:bg-rose-100 disabled:opacity-50"
+          >
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-white text-rose-700 ring-1 ring-rose-100"><Thermometer size={15} strokeWidth={2.25} /></span>
+            <span className="truncate">{loadingAction === 'sick' ? '기록 중...' : sickCount > 0 ? '병가 중' : '병가'}</span>
           </button>
 
           {/* 휴가는 신청 → 승인으로만 잡히고, 승인되면 서버가 그 기간의 근무일에 기록을 만듭니다.
               여기서 직접 만들 수 있게 두면 승인 없는 휴가가 다시 생깁니다. 신청 화면으로 보냅니다. */}
           <button
             onClick={() => router.push('/settings#leave')}
-            className="flex items-center justify-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 py-2.5 text-[12px] font-bold text-teal-700 transition-colors hover:bg-teal-100"
+            className="flex min-w-0 items-center justify-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-1 py-2.5 text-[11px] font-bold text-teal-700 transition-colors hover:bg-teal-100"
           >
-            <span className="flex size-7 items-center justify-center rounded-lg bg-white text-teal-700 ring-1 ring-teal-100"><Palmtree size={15} strokeWidth={2.25} /></span>
-            {vacationCount > 0 ? '휴가 중' : '휴가 신청'}
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-white text-teal-700 ring-1 ring-teal-100"><Palmtree size={15} strokeWidth={2.25} /></span>
+            <span className="truncate">{vacationCount > 0 ? '휴가 중' : '휴가 신청'}</span>
           </button>
         </div>
       </div>
