@@ -7,20 +7,22 @@
 -- 의존하지 않는다 — 합성 유저·워크스페이스를 트랜잭션 안에서 만들어 쓰고 같이 사라진다.
 --
 -- 결과는 예외 메시지로 나온다:
---   성공 → "TEST_RESULT: 통과 85 / 실패 0 OK"
+--   성공 → "TEST_RESULT: 통과 126 / 실패 0 OK"
 --   실패 → 실패한 항목이 '기대=… 실제=…' 형태로 함께 나온다.
 --
 -- 왜 SQL 테스트인가: 임금에 영향을 주는 계산(근무시간·휴게·연장·야간·휴일·지각·위치 판정)이
 -- 전부 Postgres 함수 안에 있다. JS 테스트로는 한 줄도 못 덮는다.
 --
 -- 구간: A 근무시간 · B 자정 넘김 · C 근무일 귀속 · D 기록 RPC · E 위치 인증 · F 권한 ·
---       G 공휴일 · H 월 마감
+--       G 공휴일 · H 월 마감 · I 휴가·연차
 --
--- 케이스를 추가할 때 지킬 것 두 가지 (둘 다 실제로 당해서 적는다):
+-- 케이스를 추가할 때 지킬 것 세 가지 (전부 실제로 당해서 적는다):
 --   1) 실패 메시지를 넣을 땐 `array_append(fails, ...)`를 쓴다. `fails || '문자열'`은 리터럴 타입이
 --      모호해서 배열 캐스팅 오류로 죽는다 — 통과할 땐 안 보이다가 실패하는 순간 터진다.
 --   2) 구간마다 자기 기록을 직접 넣는다. 앞 구간의 픽스처를 물려받으면, 앞에서 지운 순간
 --      뒤 구간이 빈 데이터를 보고 엉뚱한 실패를 낸다.
+--   3) 날짜를 검사하는 RPC를 덮을 땐 그 RPC가 받는 날짜 범위부터 본다. I 구간(휴가)만 2020년
+--      고정일을 못 쓰는 이유가 그것이다 — `request_leave`가 "오늘 -31일 ~ +365일"만 받는다.
 
 do $$
 declare
@@ -28,6 +30,10 @@ declare
   outsider uuid := gen_random_uuid();  -- 관리자가 아닌 구성원 (권한 검증용)
   admin2 uuid := gen_random_uuid();   -- 본인 승인 금지 때문에 정정 승인은 다른 관리자가 해야 한다
   closing_record uuid; closing_request uuid; closing_snap jsonb; closing_list jsonb;
+  -- I 구간(휴가)은 실행 시점 기준 상대 날짜를 쓴다 — 이유는 해당 구간 주석 참고
+  lv_mon date; lv_mon2 date; lv_year integer;
+  lv_request uuid; lv_half uuid; lv_pending uuid;
+  lv_balance jsonb; lv_list jsonb;
   ws uuid;
   fails text[] := '{}';
   checks int := 0;
@@ -479,6 +485,267 @@ begin
   if has_function_privilege('authenticated', 'public.is_attendance_month_closed(uuid, date)', 'execute')
     then fails := array_append(fails, 'H-10 내부 판정 함수가 authenticated에게 열려 있음'); end if;
 
+
+  -- ════════════════════════════════════════════════════════════════════════
+  -- I. 휴가·연차 — 신청 → 승인 → 기록 자동 생성 → 잔여 차감
+  -- ════════════════════════════════════════════════════════════════════════
+  -- 이 구간만 날짜를 2020년으로 고정하지 못한다. `request_leave`가 "오늘 -31일 ~ +365일"만
+  -- 받기 때문이다(지난 일을 소급 신청해 잔여를 맞추지 못하게 하는 제한). 그래서 실행 시점 기준으로
+  -- 다음 주 월~금을 잡는다. 연차 잔여는 연도별이라 한 주가 두 해에 걸치면 검증이 갈라지므로,
+  -- 그런 주가 잡히면 한 주 민다.
+  delete from public.commute_records where user_id = uid::text;
+  delete from public.work_holidays where workspace_id = ws;
+
+  lv_mon := (today + 7) - (extract(isodow from (today + 7))::int - 1);
+  if extract(year from lv_mon) <> extract(year from lv_mon + 11) then lv_mon := lv_mon + 14; end if;
+  lv_mon2 := lv_mon + 7;
+  lv_year := extract(year from lv_mon)::integer;
+
+  -- 수요일을 공휴일로 등록한다. 휴가 일수 계산이 공휴일을 빼는지 보려면 주 안에 하나 있어야 한다.
+  perform public.save_work_holidays(ws, jsonb_build_array(
+    jsonb_build_object('date', (lv_mon + 2)::text, 'name', '테스트공휴일')
+  ), 'custom', true);
+
+  -- I-1. 일반 구성원은 연차를 부여할 수 없다
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  checks := checks + 1;
+  begin
+    perform public.set_leave_grant(ws, uid::text, lv_year, 15, null);
+    fails := array_append(fails, 'I-1 일반 구성원이 연차를 부여함');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'I-1 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+
+  -- I-2. 부여하면 잔여에 그대로 보인다 (발생 일수는 계산하지 않고 관리자가 입력한다)
+  perform public.set_leave_grant(ws, uid::text, lv_year, 3, '테스트 부여');
+  lv_balance := public.get_leave_balance(ws, lv_year, uid::text);
+  select item into d from jsonb_array_elements(lv_balance) item limit 1;
+  checks := checks + 3;
+  if (d->>'grantedDays')::numeric <> 3 then fails := array_append(fails, format('I-2 부여: 기대=3 실제=%s', d->>'grantedDays')); end if;
+  if (d->>'usedDays')::numeric <> 0 then fails := array_append(fails, format('I-2 사용: 기대=0 실제=%s', d->>'usedDays')); end if;
+  if (d->>'remainingDays')::numeric <> 3 then fails := array_append(fails, format('I-2 잔여: 기대=3 실제=%s', d->>'remainingDays')); end if;
+
+  -- I-3. 잔여를 넘기면 **신청 단계에서** 막는다 (승인 때 알게 되면 이미 늦다)
+  checks := checks + 1;
+  begin
+    perform public.request_leave(ws, lv_mon, lv_mon + 4, 'annual', '잔여 초과 시도');
+    fails := array_append(fails, 'I-3 잔여를 넘겨 신청됨');
+  exception when others then
+    if sqlerrm not like '%남은 연차가 부족%' then fails := array_append(fails, 'I-3 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- I-4. 근무일 계산: 월~금 5일에서 공휴일(수) 하나를 빼면 4일. 주말만이면 0일
+  checks := checks + 2;
+  if public.leave_working_days(ws, lv_mon, lv_mon + 4) <> 4
+    then fails := array_append(fails, format('I-4 근무일: 기대=4 실제=%s', public.leave_working_days(ws, lv_mon, lv_mon + 4))); end if;
+  if public.leave_working_days(ws, lv_mon + 5, lv_mon + 6) <> 0
+    then fails := array_append(fails, format('I-4 주말 근무일: 기대=0 실제=%s', public.leave_working_days(ws, lv_mon + 5, lv_mon + 6))); end if;
+
+  -- 이제부터는 잔여를 넉넉히 두고 나머지 규칙을 본다.
+  perform public.set_leave_grant(ws, uid::text, lv_year, 10, null);
+  if extract(year from lv_mon2 + 1)::integer <> lv_year then
+    perform public.set_leave_grant(ws, uid::text, extract(year from lv_mon2 + 1)::integer, 10, null);
+  end if;
+
+  -- I-5. 주말·공휴일만 신청하면 쓸 연차가 없다
+  checks := checks + 1;
+  begin
+    perform public.request_leave(ws, lv_mon + 5, lv_mon + 6, 'annual', '주말만 신청');
+    fails := array_append(fails, 'I-5 주말만 신청이 통과됨');
+  exception when others then
+    if sqlerrm not like '%근무일이 없습니다%' then fails := array_append(fails, 'I-5 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- I-6. 종료일이 시작일보다 이르면 거부
+  checks := checks + 1;
+  begin
+    perform public.request_leave(ws, lv_mon + 3, lv_mon, 'annual', '거꾸로 신청');
+    fails := array_append(fails, 'I-6 종료일이 앞선 신청이 통과됨');
+  exception when others then
+    if sqlerrm not like '%종료일이 시작일보다%' then fails := array_append(fails, 'I-6 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- I-7. 반차는 하루만 (여러 날 반차는 0.5일로 셀 수가 없다)
+  checks := checks + 1;
+  begin
+    perform public.request_leave(ws, lv_mon, lv_mon + 1, 'half_am', '이틀 반차');
+    fails := array_append(fails, 'I-7 여러 날 반차가 통과됨');
+  exception when others then
+    if sqlerrm not like '%반차는 하루만%' then fails := array_append(fails, 'I-7 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- I-8. 알 수 없는 휴가 종류 거부 (DB의 type과 달리 신청 종류는 3가지뿐이다)
+  checks := checks + 1;
+  begin
+    perform public.request_leave(ws, lv_mon, lv_mon, 'sick', '병가 신청');
+    fails := array_append(fails, 'I-8 알 수 없는 종류가 통과됨');
+  exception when others then
+    if sqlerrm not like '%알 수 없는 휴가 종류%' then fails := array_append(fails, 'I-8 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- I-9. 사유는 2자 이상
+  checks := checks + 1;
+  begin
+    perform public.request_leave(ws, lv_mon, lv_mon, 'annual', ' ');
+    fails := array_append(fails, 'I-9 사유 없이 신청됨');
+  exception when others then
+    if sqlerrm not like '%사유를 입력%' then fails := array_append(fails, 'I-9 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- I-10. 너무 오래된 날짜는 신청할 수 없다 (지난 기록을 휴가로 덮어 잔여를 맞추는 걸 막는다)
+  checks := checks + 1;
+  begin
+    perform public.request_leave(ws, today - 40, today - 40, 'annual', '소급 신청');
+    fails := array_append(fails, 'I-10 40일 전 날짜가 신청됨');
+  exception when others then
+    if sqlerrm not like '%날짜 범위를 벗어났%' then fails := array_append(fails, 'I-10 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- I-11. 정상 신청 — 월~금이지만 수요일이 공휴일이라 4일로 잡혀야 한다
+  --       (지난 세션에 내가 5일로 예상했다가 함수가 맞았던 자리다)
+  checks := checks + 2;
+  begin
+    lv_request := public.request_leave(ws, lv_mon, lv_mon + 4, 'annual', '여름 휴가');
+  exception when others then
+    fails := array_append(fails, 'I-11 정상 신청 실패: ' || sqlerrm);
+  end;
+  if (select r.days from public.leave_requests r where r.id = lv_request) <> 4 then
+    fails := array_append(fails, format('I-11 일수: 기대=4 실제=%s', (select r.days from public.leave_requests r where r.id = lv_request)));
+  end if;
+
+  -- I-12. 같은 기간에 겹쳐 신청할 수 없다
+  checks := checks + 1;
+  begin
+    perform public.request_leave(ws, lv_mon + 3, lv_mon + 4, 'annual', '겹치는 신청');
+    fails := array_append(fails, 'I-12 겹치는 기간이 신청됨');
+  exception when others then
+    if sqlerrm not like '%이미 신청한 휴가%' then fails := array_append(fails, 'I-12 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- I-13. 대기 중인 신청은 '대기'로만 잡히고 잔여는 아직 깎이지 않는다
+  lv_balance := public.get_leave_balance(ws, lv_year, uid::text);
+  select item into d from jsonb_array_elements(lv_balance) item limit 1;
+  checks := checks + 4;
+  if (d->>'grantedDays')::numeric <> 10 then fails := array_append(fails, format('I-13 부여: 기대=10 실제=%s', d->>'grantedDays')); end if;
+  if (d->>'pendingDays')::numeric <> 4 then fails := array_append(fails, format('I-13 대기: 기대=4 실제=%s', d->>'pendingDays')); end if;
+  if (d->>'usedDays')::numeric <> 0 then fails := array_append(fails, format('I-13 사용: 기대=0 실제=%s', d->>'usedDays')); end if;
+  if (d->>'remainingDays')::numeric <> 10 then fails := array_append(fails, format('I-13 잔여: 기대=10 실제=%s', d->>'remainingDays')); end if;
+
+  -- I-14. 일반 구성원은 승인할 수 없다
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  checks := checks + 1;
+  begin
+    perform public.review_leave(lv_request, true, null);
+    fails := array_append(fails, 'I-14 일반 구성원이 휴가를 승인함');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'I-14 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+
+  -- I-15. 승인하면 근무일마다 휴가 기록을 **서버가** 만든다.
+  --       직원이 버튼으로 만들 수 있게 두면 승인 없는 휴가가 다시 생긴다.
+  perform public.review_leave(lv_request, true, '확인함');
+  checks := checks + 3;
+  if (select count(*) from public.commute_records r
+      where r.user_id = uid::text and r.type = 'vacation' and r.date between lv_mon and lv_mon + 4) <> 4
+    then fails := array_append(fails, format('I-15 휴가 기록 수: 기대=4 실제=%s',
+      (select count(*) from public.commute_records r where r.user_id = uid::text and r.type = 'vacation' and r.date between lv_mon and lv_mon + 4))); end if;
+  if exists (select 1 from public.commute_records r where r.user_id = uid::text and r.date = lv_mon + 2)
+    then fails := array_append(fails, 'I-15 공휴일에도 휴가 기록이 생김'); end if;
+  if exists (select 1 from public.commute_records r where r.user_id = uid::text and r.date in (lv_mon + 5, lv_mon + 6))
+    then fails := array_append(fails, 'I-15 주말에도 휴가 기록이 생김'); end if;
+
+  -- I-16. 승인 후에 잔여가 깎인다
+  lv_balance := public.get_leave_balance(ws, lv_year, uid::text);
+  select item into d from jsonb_array_elements(lv_balance) item limit 1;
+  checks := checks + 3;
+  if (d->>'usedDays')::numeric <> 4 then fails := array_append(fails, format('I-16 사용: 기대=4 실제=%s', d->>'usedDays')); end if;
+  if (d->>'pendingDays')::numeric <> 0 then fails := array_append(fails, format('I-16 대기: 기대=0 실제=%s', d->>'pendingDays')); end if;
+  if (d->>'remainingDays')::numeric <> 6 then fails := array_append(fails, format('I-16 잔여: 기대=6 실제=%s', d->>'remainingDays')); end if;
+
+  -- I-17. 이미 처리된 신청은 다시 승인할 수 없다 (두 번 승인되면 기록이 두 벌 생긴다)
+  checks := checks + 1;
+  begin
+    perform public.review_leave(lv_request, true, null);
+    fails := array_append(fails, 'I-17 이미 처리된 신청이 다시 승인됨');
+  exception when others then
+    if sqlerrm not like '%이미 처리된 신청%' then fails := array_append(fails, 'I-17 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- I-18. 승인된 휴가는 직원이 스스로 취소할 수 없다 (기록이 이미 생겼으므로 관리자가 봐야 한다)
+  checks := checks + 1;
+  begin
+    perform public.cancel_leave(lv_request);
+    fails := array_append(fails, 'I-18 승인된 휴가가 취소됨');
+  exception when others then
+    if sqlerrm not like '%검토 대기 중인 신청만%' then fails := array_append(fails, 'I-18 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- I-19. 남의 신청은 취소할 수 없다
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  checks := checks + 1;
+  begin
+    perform public.cancel_leave(lv_request);
+    fails := array_append(fails, 'I-19 남의 신청이 취소됨');
+  exception when others then
+    if sqlerrm not like '%내 신청만%' then fails := array_append(fails, 'I-19 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+
+  -- I-20. 그 기간에 이미 출퇴근 기록이 있으면 승인을 막는다 (휴가와 출근이 같은 날 겹치면 안 된다)
+  insert into public.commute_records (user_id, workspace_id, date, type, commute_subtype, start_time, end_time)
+  values (uid::text, ws, lv_mon2, 'commute', 'arrival',
+          (lv_mon2 + time '08:00') at time zone 'Asia/Seoul', (lv_mon2 + time '09:00') at time zone 'Asia/Seoul');
+  lv_pending := public.request_leave(ws, lv_mon2, lv_mon2, 'annual', '기록 충돌 확인');
+  checks := checks + 1;
+  begin
+    perform public.review_leave(lv_pending, true, null);
+    fails := array_append(fails, 'I-20 출퇴근 기록이 있는 기간이 승인됨');
+  exception when others then
+    if sqlerrm not like '%이미 출퇴근 또는 휴가 기록%' then fails := array_append(fails, 'I-20 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- I-21. 반차는 0.5일
+  checks := checks + 2;
+  begin
+    lv_half := public.request_leave(ws, lv_mon2 + 1, lv_mon2 + 1, 'half_am', '오전 반차');
+  exception when others then
+    fails := array_append(fails, 'I-21 반차 신청 실패: ' || sqlerrm);
+  end;
+  if (select r.days from public.leave_requests r where r.id = lv_half) <> 0.5 then
+    fails := array_append(fails, format('I-21 반차 일수: 기대=0.5 실제=%s', (select r.days from public.leave_requests r where r.id = lv_half)));
+  end if;
+
+  -- I-22. 거절하면 상태만 바뀌고 기록은 생기지 않는다
+  perform public.review_leave(lv_half, false, '일정 조율 필요');
+  checks := checks + 2;
+  if (select r.status from public.leave_requests r where r.id = lv_half) <> 'rejected'
+    then fails := array_append(fails, format('I-22 상태: 기대=rejected 실제=%s', (select r.status from public.leave_requests r where r.id = lv_half))); end if;
+  if exists (select 1 from public.commute_records r where r.user_id = uid::text and r.date = lv_mon2 + 1)
+    then fails := array_append(fails, 'I-22 거절했는데 기록이 생김'); end if;
+
+  -- I-23. 일반 구성원에게는 자기 것만 보인다 (남의 휴가 사유와 잔여가 새 나가면 안 된다)
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  lv_list := public.list_leaves(ws, lv_mon - 30, lv_mon2 + 30, false);
+  lv_balance := public.get_leave_balance(ws, lv_year, uid::text);
+  checks := checks + 2;
+  if jsonb_array_length(lv_list) <> 0
+    then fails := array_append(fails, format('I-23 남의 휴가가 보임: %s건', jsonb_array_length(lv_list))); end if;
+  if exists (select 1 from jsonb_array_elements(lv_balance) item where item->>'userId' = uid::text)
+    then fails := array_append(fails, 'I-23 남의 잔여가 보임'); end if;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+
+  -- I-24. 권한 — 신청·승인·부여는 anon에게 닫혀 있고, 일수 계산은 앱에서 직접 못 부른다
+  checks := checks + 4;
+  if has_function_privilege('anon', 'public.request_leave(uuid, date, date, text, text)', 'execute')
+    then fails := array_append(fails, 'I-24 request_leave가 anon에게 열려 있음'); end if;
+  if has_function_privilege('anon', 'public.review_leave(uuid, boolean, text)', 'execute')
+    then fails := array_append(fails, 'I-24 review_leave가 anon에게 열려 있음'); end if;
+  if has_function_privilege('anon', 'public.set_leave_grant(uuid, text, integer, numeric, text)', 'execute')
+    then fails := array_append(fails, 'I-24 set_leave_grant가 anon에게 열려 있음'); end if;
+  if has_function_privilege('authenticated', 'public.leave_working_days(uuid, date, date)', 'execute')
+    then fails := array_append(fails, 'I-24 leave_working_days가 authenticated에게 열려 있음'); end if;
 
   -- ── 결과 ──────────────────────────────────────────────────────────────────
   if array_length(fails, 1) is null then
