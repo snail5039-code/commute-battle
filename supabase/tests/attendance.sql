@@ -7,7 +7,7 @@
 -- 의존하지 않는다 — 합성 유저·워크스페이스를 트랜잭션 안에서 만들어 쓰고 같이 사라진다.
 --
 -- 결과는 예외 메시지로 나온다:
---   성공 → "TEST_RESULT: 통과 211 / 실패 0 OK"
+--   성공 → "TEST_RESULT: 통과 213 / 실패 0 OK"
 --   실패 → 실패한 항목이 '기대=… 실제=…' 형태로 함께 나온다.
 --
 -- 왜 SQL 테스트인가: 임금에 영향을 주는 계산(근무시간·휴게·연장·야간·휴일·지각·위치 판정)이
@@ -1099,17 +1099,28 @@ begin
   checks := checks + 1;
   if exists (select 1 from jsonb_array_elements(summary->'days') item where item->>'userId' = admin2::text)
     then fails := array_append(fails, 'L-5 부서장이 다른 부서 사람의 근무시간을 봄'); end if;
+
+  -- L-6. 보이는 사람을 통째로 센다 — '자기 부서원 전부, 그 밖은 없음'.
+  --      한 명만 확인하면 "한 명은 보이는데 다른 한 명은 안 보이는" 경우를 놓친다.
+  --      영업팀은 uid와 outsider 둘뿐이므로 2명이어야 한다.
+  checks := checks + 2;
+  if not exists (select 1 from jsonb_array_elements(summary->'days') item where item->>'userId' = outsider::text)
+    then fails := array_append(fails, 'L-6 부서장 자신의 근무시간이 안 보임'); end if;
+  if (select count(distinct item->>'userId') from jsonb_array_elements(summary->'days') item) <> 2 then
+    fails := array_append(fails, format('L-6 보이는 사람 수: 기대=2(본인+부서원) 실제=%s',
+      (select count(distinct item->>'userId') from jsonb_array_elements(summary->'days') item)));
+  end if;
   perform set_config('request.jwt.claim.sub', uid::text, true);
 
-  -- L-6. ★ 관리자 겸 부서장이 한 사람을 골라 보면 자기 부서원이 딸려 나오지 않는다.
+  -- L-6a. ★ 관리자 겸 부서장이 한 사람을 골라 보면 자기 부서원이 딸려 나오지 않는다.
   --      부서원까지 넓히는 조건에 'scope가 나 자신일 때만'이라는 단서가 없으면 여기서 샌다.
   perform set_config('request.jwt.claim.sub', admin2::text, true);
   summary := public.get_attendance_summary(ws, d7, d7, uid::text);
   checks := checks + 2;
   if not exists (select 1 from jsonb_array_elements(summary->'days') item where item->>'userId' = uid::text)
-    then fails := array_append(fails, 'L-6 관리자가 지정한 사람을 못 봄'); end if;
+    then fails := array_append(fails, 'L-6a 관리자가 지정한 사람을 못 봄'); end if;
   if exists (select 1 from jsonb_array_elements(summary->'days') item where item->>'userId' = admin2::text)
-    then fails := array_append(fails, 'L-6 한 사람을 골랐는데 자기 부서원이 딸려 나옴'); end if;
+    then fails := array_append(fails, 'L-6a 한 사람을 골랐는데 자기 부서원이 딸려 나옴'); end if;
   perform set_config('request.jwt.claim.sub', uid::text, true);
 
   -- 정정 요청 세 건 (각자 자기 기록에 대해)
