@@ -362,6 +362,7 @@ Supabase MCP `execute_sql`에 그대로 넘기면 됩니다.
 | 공휴일 관리 화면 | `components/admin/HolidayPanel.tsx` |
 | 공휴일 자동 갱신(앱 시작 시 조용히) | `components/HolidayAutoSync.tsx`, `lib/holidays.ts`의 `syncHolidaysIfDue` |
 | 조직(부서·직급)·부서장 | `lib/org.ts`, `components/admin/OrgPanel.tsx` |
+| 역할별 사용법 화면 | `app/guide/page.tsx` (직원·부서장·관리자·FAQ) |
 | 월 마감(원장·스냅샷) | `lib/closing.ts`, `components/admin/MonthlyClosingPanel.tsx` |
 | 휴가·연차 | `lib/leave.ts`, `components/LeavePanel.tsx`, `components/admin/LeaveAdminPanel.tsx` |
 | 근무시간 집계 표시·CSV | `lib/workTime.ts`, `components/AttendanceReport.tsx` |
@@ -386,9 +387,6 @@ Supabase MCP `execute_sql`에 그대로 넘기면 됩니다.
 ---
 
 ## 미해결로 남아 있는 작은 항목
-- **`README.md`가 2026-08-10에 멈춰 있습니다.** 근태 시스템 전환 전체가 빠져 있고
-  마이그레이션을 8개만 나열합니다(실제 24개). 다시 쓸지 사용자 판단이 필요합니다
-  ([`docs/2026-08-18_전체점검.md`](docs/2026-08-18_전체점검.md) F 항목).
 - 배지 진행도가 `badges` 테이블에 저장되지 않고 매번 클라이언트에서 재계산됨 (동작은 정상)
 - 미니프로젝트 제출은 2026-08-09에 끝났음 (제출 문서 `../미니프로젝트3_출퇴근전쟁봇.md`는 그 시점 기준)
 
