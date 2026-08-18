@@ -7,7 +7,7 @@
 -- 의존하지 않는다 — 합성 유저·워크스페이스를 트랜잭션 안에서 만들어 쓰고 같이 사라진다.
 --
 -- 결과는 예외 메시지로 나온다:
---   성공 → "TEST_RESULT: 통과 195 / 실패 0 OK"
+--   성공 → "TEST_RESULT: 통과 211 / 실패 0 OK"
 --   실패 → 실패한 항목이 '기대=… 실제=…' 형태로 함께 나온다.
 --
 -- 왜 SQL 테스트인가: 임금에 영향을 주는 계산(근무시간·휴게·연장·야간·휴일·지각·위치 판정)이
@@ -1213,30 +1213,120 @@ begin
   if exists (select 1 from jsonb_array_elements(lst) item where item->>'userId' = admin2::text)
     then fails := array_append(fails, 'L-13 ★ 부서장이 다른 부서 휴가를 봄'); end if;
 
-  -- L-14. 부서장에서 내리면 권한이 사라진다. 넓힌 권한은 거둘 수도 있어야 한다.
+  -- L-14. ★ 부서장이 되어도 조직을 건드리지는 못한다.
+  --       사용자 지시(2026-08-18): 직급 부여는 관리자 전용. 승인 권한을 줬다고 조직까지 열리면
+  --       부서장이 자기 부서원의 직급을 올리고 내릴 수 있게 된다.
+  checks := checks + 7;
+  begin
+    perform public.save_position(ws, null, '몰래직급', 5);
+    fails := array_append(fails, 'L-14 부서장이 직급을 만듦');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'L-14 직급 생성 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  begin
+    perform public.save_position(ws, og_pos, '몰래바꾼이름', 1);
+    fails := array_append(fails, 'L-14 부서장이 직급을 고침');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'L-14 직급 수정 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  begin
+    perform public.delete_position(ws, og_pos);
+    fails := array_append(fails, 'L-14 부서장이 직급을 지움');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'L-14 직급 삭제 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  begin
+    perform public.assign_member_org(ws, uid, lh_a, null);
+    fails := array_append(fails, 'L-14 부서장이 자기 부서원의 배정을 바꿈');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'L-14 배정 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  begin
+    perform public.save_department(ws, null, '몰래부서', 1);
+    fails := array_append(fails, 'L-14 부서장이 부서를 만듦');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'L-14 부서 생성 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  begin
+    perform public.delete_department(ws, lh_a);
+    fails := array_append(fails, 'L-14 부서장이 부서를 지움');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'L-14 부서 삭제 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  begin
+    perform public.set_department_head(ws, lh_a, uid);
+    fails := array_append(fails, 'L-14 부서장이 다음 부서장을 지정함');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'L-14 부서장 지정 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- L-15. 연차 부여·공휴일·월 마감도 그대로 관리자 전용이다.
+  --       G-7·H-9가 '일반 구성원'으로 이미 확인하지만, 여기서는 **부서장 상태**로 다시 확인한다.
+  checks := checks + 3;
+  begin
+    perform public.set_leave_grant(ws, uid::text, lv_year, 15, null);
+    fails := array_append(fails, 'L-15 부서장이 연차를 부여함');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'L-15 연차 부여 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  begin
+    perform public.save_work_holidays(ws, jsonb_build_array(jsonb_build_object('date', '2020-12-25', 'name', '몰래')), 'custom', true);
+    fails := array_append(fails, 'L-15 부서장이 공휴일을 저장함');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'L-15 공휴일 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  begin
+    perform public.close_attendance_month(ws, '2020-05-01', null);
+    fails := array_append(fails, 'L-15 부서장이 월 마감을 함');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'L-15 월 마감 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- L-16. my_workspace_access — 화면이 관리자와 부서장을 구분해 그릴 수 있어야 한다.
+  --       (부서장이 role=member라 예전 필터에서 통째로 빠져 승인 화면에 못 들어갔다)
+  checks := checks + 6;
+  select item into d from jsonb_array_elements(public.my_workspace_access()) item where item->>'id' = ws::text;
+  if d is null then fails := array_append(fails, 'L-16 부서장에게 워크스페이스가 안 보임');
+  else
+    if (d->>'isAdmin')::boolean is not false then fails := array_append(fails, 'L-16 부서장이 isAdmin으로 나옴'); end if;
+    if (d->>'isHead')::boolean is not true then fails := array_append(fails, 'L-16 부서장이 isHead가 아님'); end if;
+  end if;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+  select item into d from jsonb_array_elements(public.my_workspace_access()) item where item->>'id' = ws::text;
+  if (d->>'isAdmin')::boolean is not true then fails := array_append(fails, 'L-16 소유자가 isAdmin이 아님'); end if;
+  if (d->>'isHead')::boolean is not false then fails := array_append(fails, 'L-16 부서장이 아닌 소유자가 isHead로 나옴'); end if;
+  perform set_config('request.jwt.claim.sub', admin2::text, true);
+  select item into d from jsonb_array_elements(public.my_workspace_access()) item where item->>'id' = ws::text;
+  if (d->>'isAdmin')::boolean is not true then fails := array_append(fails, 'L-16 관리자가 isAdmin이 아님'); end if;
+  if (d->>'isHead')::boolean is not true then fails := array_append(fails, 'L-16 관리자 겸 부서장이 isHead가 아님'); end if;
+  if has_function_privilege('anon', 'public.my_workspace_access()', 'execute')
+    then fails := array_append(fails, 'L-16 my_workspace_access가 anon에게 열려 있음'); end if;
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+
+  -- L-17. 부서장에서 내리면 권한이 사라진다. 넓힌 권한은 거둘 수도 있어야 한다.
   perform set_config('request.jwt.claim.sub', uid::text, true);
   perform public.set_department_head(ws, lh_a, null);
   perform set_config('request.jwt.claim.sub', outsider::text, true);
   checks := checks + 2;
   summary := public.get_attendance_summary(ws, d7, d7);
   if exists (select 1 from jsonb_array_elements(summary->'days') item where item->>'userId' = uid::text)
-    then fails := array_append(fails, 'L-14 ★ 부서장에서 내렸는데 남의 근무시간이 보임'); end if;
+    then fails := array_append(fails, 'L-17 ★ 부서장에서 내렸는데 남의 근무시간이 보임'); end if;
   begin
     perform public.list_commute_corrections(ws, true);
-    fails := array_append(fails, 'L-14 부서장에서 내렸는데 정정 목록이 열림');
+    fails := array_append(fails, 'L-17 부서장에서 내렸는데 정정 목록이 열림');
   exception when others then
-    if sqlerrm not like '%부서장 권한이 필요합니다%' then fails := array_append(fails, 'L-14 예상과 다른 오류: ' || sqlerrm); end if;
+    if sqlerrm not like '%부서장 권한이 필요합니다%' then fails := array_append(fails, 'L-17 예상과 다른 오류: ' || sqlerrm); end if;
   end;
   perform set_config('request.jwt.claim.sub', uid::text, true);
 
-  -- L-15. 판정 함수는 앱에서 직접 부를 수 없다 (정의자 함수 안에서만 쓴다)
+  -- L-18. 판정 함수는 앱에서 직접 부를 수 없다 (정의자 함수 안에서만 쓴다)
   checks := checks + 3;
   if has_function_privilege('authenticated', 'public.is_my_department_member(uuid, text)', 'execute')
-    then fails := array_append(fails, 'L-15 is_my_department_member가 authenticated에게 열려 있음'); end if;
+    then fails := array_append(fails, 'L-18 is_my_department_member가 authenticated에게 열려 있음'); end if;
   if has_function_privilege('authenticated', 'public.can_review_member(uuid, text)', 'execute')
-    then fails := array_append(fails, 'L-15 can_review_member가 authenticated에게 열려 있음'); end if;
+    then fails := array_append(fails, 'L-18 can_review_member가 authenticated에게 열려 있음'); end if;
   if has_function_privilege('anon', 'public.set_department_head(uuid, uuid, uuid)', 'execute')
-    then fails := array_append(fails, 'L-15 set_department_head가 anon에게 열려 있음'); end if;
+    then fails := array_append(fails, 'L-18 set_department_head가 anon에게 열려 있음'); end if;
 
   -- ── 결과 ──────────────────────────────────────────────────────────────────
   if array_length(fails, 1) is null then

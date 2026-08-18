@@ -146,7 +146,7 @@ export default function OrgPanel({ workspaceId, onChanged }: {
             <h3 className="text-xs font-black text-slate-600">직급</h3>
             <div className="mt-2 flex gap-2">
               <input value={posDraft} onChange={(event) => setPosDraft(event.target.value)} maxLength={40}
-                placeholder="대표, 팀장, 사원 …" aria-label="새 직급 이름"
+                placeholder="대표, 부장, 사원 …" aria-label="새 직급 이름"
                 onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addPosition(); } }}
                 className="h-9 min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-sm" />
               <button type="button" onClick={addPosition} disabled={!!busy}
@@ -184,7 +184,10 @@ export default function OrgPanel({ workspaceId, onChanged }: {
                 ))}
               </ul>
             )}
-            <p className="mt-2 text-[11px] text-slate-400">숫자가 작을수록 위에 옵니다(대표 10, 팀장 20 …). 표시 순서일 뿐입니다.</p>
+            <p className="mt-2 text-[11px] text-slate-400">
+              숫자가 작을수록 위에 옵니다(대표 10, 부장 20 …). <strong>표시 순서일 뿐이고 권한과 무관합니다</strong> —
+              승인은 왼쪽에서 지정한 부서장이 합니다.
+            </p>
           </div>
         </div>
       )}

@@ -120,3 +120,20 @@ export function orgByUserId(org: Org): Map<string, OrgMember> {
 }
 
 export const UNASSIGNED = '미지정';
+
+// ── 내가 관리하는 워크스페이스 ────────────────────────────────────────────────
+// 관리자냐 부서장이냐를 나눠서 돌려줍니다. 화면이 이 둘을 구분해야 하기 때문입니다 —
+// 부서장에게는 승인만 열고 조직·공휴일·마감·근무 정책은 닫아야 합니다.
+export interface WorkspaceAccess {
+  id: string;
+  name: string;
+  role: 'owner' | 'admin' | 'member';
+  isAdmin: boolean;
+  isHead: boolean;
+}
+
+export async function fetchWorkspaceAccess(): Promise<WorkspaceAccess[]> {
+  const { data, error } = await supabase.rpc('my_workspace_access');
+  if (error) throw rpcError(error, '워크스페이스 권한을 확인하지 못했습니다.');
+  return (data ?? []) as WorkspaceAccess[];
+}

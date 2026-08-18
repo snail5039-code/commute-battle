@@ -22,7 +22,13 @@ const STATUS_STYLE: Record<string, string> = {
   early_leave: 'bg-orange-50 text-orange-800',
 };
 
-export default function AttendanceReport({ workspaceId, adminMode }: { workspaceId: string; adminMode: boolean }) {
+// onlyUserId: 개인 화면(/stats)에서 쓰는 '본인 것만' 잠금.
+// 부서장은 서버가 부서원까지 돌려주므로, 이 잠금이 없으면 '내 근무시간' 카드에 부서원이 섞인다.
+export default function AttendanceReport({ workspaceId, adminMode, onlyUserId }: {
+  workspaceId: string;
+  adminMode: boolean;
+  onlyUserId?: string | null;
+}) {
   const initial = useMemo(() => monthRange(), []);
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
@@ -39,13 +45,15 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const next = await fetchAttendanceSummary(workspaceId, from, to, member || undefined);
+      // target_user_id는 넘기지 않습니다. 서버가 관리자에게만 적용해서, 부서장이 구성원을
+      // 골라도 아무 일이 안 일어났습니다. 고르는 일은 아래 view에서 화면이 합니다.
+      const next = await fetchAttendanceSummary(workspaceId, from, to);
       setSummary(next); setDraft(next.policy);
     } catch (cause) {
       setSummary(null);
       setError(cause instanceof Error ? cause.message : '근태 집계를 불러오지 못했습니다.');
     } finally { setLoading(false); }
-  }, [workspaceId, from, to, member]);
+  }, [workspaceId, from, to]);
 
   useEffect(() => { const timer = setTimeout(() => { void load(); }, 0); return () => clearTimeout(timer); }, [load]);
 
@@ -62,8 +70,11 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
   // 부서로 거른 결과. 아래 계산·표·CSV는 전부 이걸 봅니다 — summary를 직접 보면
   // 필터가 걸린 화면에서 합계만 전체 값으로 남습니다.
   const view = useMemo(() => {
-    if (!summary || !department) return summary;
+    if (!summary) return summary;
     const keep = (userId: string) => {
+      if (onlyUserId && userId !== onlyUserId) return false;
+      if (member && userId !== member) return false;
+      if (!department) return true;
       const assigned = orgMap.get(userId)?.departmentId ?? null;
       return department === NO_DEPARTMENT ? assigned === null : assigned === department;
     };
@@ -72,13 +83,17 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
       days: summary.days.filter((day) => keep(day.userId)),
       weeks: summary.weeks.filter((week) => keep(week.userId)),
     };
-  }, [summary, department, orgMap]);
+  }, [summary, department, member, onlyUserId, orgMap]);
 
   const members = useMemo(() => {
     const map = new Map<string, string>();
-    view?.days.forEach((day) => map.set(day.userId, day.nickname));
-    return [...map].map(([userId, nickname]) => ({ userId, nickname }));
-  }, [view]);
+    // view가 아니라 summary에서 뽑습니다. view는 이미 걸러진 값이라, 한 명을 고르고 나면
+    // 목록에 그 한 명만 남아 다른 사람으로 바꿀 수 없게 됩니다.
+    summary?.days.forEach((day) => map.set(day.userId, day.nickname));
+    return [...map]
+      .filter(([userId]) => !onlyUserId || userId === onlyUserId)
+      .map(([userId, nickname]) => ({ userId, nickname }));
+  }, [summary, onlyUserId]);
 
   const totals = useMemo(() => {
     const days = view?.days ?? [];
@@ -135,7 +150,7 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
           <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} aria-label="시작일" className="h-10 rounded-lg border border-slate-300 px-2 text-xs" />
           <span className="text-xs text-slate-400">~</span>
           <input type="date" value={to} onChange={(event) => setTo(event.target.value)} aria-label="종료일" className="h-10 rounded-lg border border-slate-300 px-2 text-xs" />
-          {adminMode && org.departments.length > 0 && (
+          {members.length > 1 && org.departments.length > 0 && (
             <select value={department} onChange={(event) => { setDepartment(event.target.value); setMember(''); }}
               aria-label="부서" className="h-10 rounded-lg border border-slate-300 px-2 text-xs font-bold">
               <option value="">전체 부서</option>
@@ -143,7 +158,7 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
               <option value={NO_DEPARTMENT}>{UNASSIGNED}</option>
             </select>
           )}
-          {adminMode && members.length > 0 && (
+          {members.length > 1 && (
             <select value={member} onChange={(event) => setMember(event.target.value)} aria-label="구성원" className="h-10 rounded-lg border border-slate-300 px-2 text-xs font-bold">
               <option value="">전체 구성원</option>
               {members.map((item) => <option key={item.userId} value={item.userId}>{item.nickname}</option>)}
@@ -268,7 +283,7 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
                 <caption className="px-5 pt-4 text-left text-xs font-bold text-slate-500">일별 상세</caption>
                 <thead className="text-xs text-slate-500"><tr>
                   <th className="px-5 py-2">날짜</th><th className="px-4 py-2">구성원</th>
-                  {org.departments.length > 0 && <th className="px-4 py-2">부서</th>}
+                  {members.length > 1 && org.departments.length > 0 && <th className="px-4 py-2">부서</th>}
                   <th className="px-4 py-2">출근</th><th className="px-4 py-2">퇴근</th>
                   <th className="px-4 py-2">근무</th><th className="px-4 py-2">연장</th><th className="px-4 py-2">야간</th><th className="px-4 py-2">지각</th><th className="px-4 py-2">상태</th>
                   {geofenceOn && <th className="px-4 py-2">위치</th>}
@@ -278,7 +293,7 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
                     <tr key={`${day.userId}-${day.date}`} className={day.isHoliday ? 'bg-slate-50/70' : ''}>
                       <td className="px-5 py-2 text-xs font-bold">{day.date}{day.isHoliday && <span className="ml-1 text-[10px] font-normal text-rose-600">{day.holidayName ?? '휴일'}</span>}</td>
                       <td className="px-4 py-2 text-xs">{day.nickname}{day.isRemote && <span className="ml-1 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">재택</span>}</td>
-                      {org.departments.length > 0 && (
+                      {members.length > 1 && org.departments.length > 0 && (
                         <td className="px-4 py-2 text-xs text-slate-500">
                           {orgMap.get(day.userId)?.departmentName ?? <span className="text-slate-300">{UNASSIGNED}</span>}
                         </td>
@@ -307,7 +322,7 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
 
           <p className="px-5 py-3 text-[11px] text-slate-400">
             {adminMode && !geofenceOn && <span className="block font-bold text-amber-700">사업장 위치가 지정되지 않아 출근 위치 인증이 꺼져 있습니다 — &apos;근무 정책&apos;에서 지정하면 사무실 출퇴근을 반경 안에서만 인증합니다.</span>}
-            공휴일 달력과 교대·유연근무제는 아직 반영되지 않습니다. 자정을 넘겨 퇴근한 날은 두 날짜로 나뉘어 &apos;기록 미완료&apos;로 표시될 수 있습니다.
+            등록된 공휴일은 휴일근로로 잡히고, 자정을 넘겨 퇴근한 날은 출근한 날의 근무로 귀속됩니다. 교대·유연근무제는 아직 반영되지 않습니다.
           </p>
         </>
       )}

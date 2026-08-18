@@ -27,7 +27,10 @@ export default function RemoteWorkPanel() {
     try {
       const today = new Date();
       const from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      setRequests(await fetchRemoteWork(id, localDate(from), localDate(new Date(today.getFullYear(), today.getMonth() + 2, 0))));
+      // 내 것만 남깁니다. 서버는 관리자에게 전원을, 부서장에게 부서원을 돌려주는데
+      // (202608180005) 여기는 '내 재택근무 신청' 카드입니다. 승인은 /admin에서 합니다.
+      const items = await fetchRemoteWork(id, localDate(from), localDate(new Date(today.getFullYear(), today.getMonth() + 2, 0)));
+      setRequests(items.filter((item) => item.isMine));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '재택근무 신청을 불러오지 못했습니다.');
     } finally { setLoading(false); }
