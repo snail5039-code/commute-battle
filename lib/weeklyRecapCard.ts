@@ -63,7 +63,7 @@ export function drawWeeklyRecapCard(canvas: HTMLCanvasElement, data: WeeklyRecap
 
   ctx.fillStyle = '#64748b';
   ctx.font = `600 22px ${FONT_FAMILY}`;
-  ctx.fillText('출퇴근전쟁봇 · 주간 리캡', 48, 72);
+  ctx.fillText('출퇴근 생존일지 · 주간 리캡', 48, 72);
   ctx.fillStyle = '#0f172a';
   ctx.font = `700 30px ${FONT_FAMILY}`;
   ctx.fillText(data.rangeLabel, 48, 112);

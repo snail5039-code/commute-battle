@@ -40,7 +40,7 @@ export default function WeeklyRecapCard({ data, onClose }: WeeklyRecapCardProps)
     const file = new File([blob], 'commute-battle-recap.png', { type: 'image/png' });
     setSharing(true);
     try {
-      await navigator.share({ files: [file], title: '출퇴근전쟁봇 주간 리캡', text: `이번 주(${data.rangeLabel}) 출퇴근 리캡!` });
+      await navigator.share({ files: [file], title: '출퇴근 생존일지 주간 리캡', text: `이번 주(${data.rangeLabel}) 출퇴근 리캡!` });
     } catch (error) {
       if (error instanceof Error && error.name !== 'AbortError') console.error('공유 실패:', error);
     } finally {

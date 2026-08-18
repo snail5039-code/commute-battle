@@ -69,7 +69,7 @@ export default function InitModal({ onComplete }: InitModalProps) {
           <Siren size={20} className="text-white" strokeWidth={2.25} />
         </div>
         <h1 className="text-xl font-semibold text-center text-neutral-900">
-          출퇴근전쟁봇
+          출퇴근 생존일지
         </h1>
         <p className="text-sm text-neutral-500 text-center mt-1 mb-6">
           출퇴근을 게임처럼 즐기세요

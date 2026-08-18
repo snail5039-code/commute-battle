@@ -109,7 +109,7 @@ export default function PetWidget() {
     setThinkingBoth(false);
     if (dismissTimer.current) clearTimeout(dismissTimer.current);
     dismissTimer.current = setTimeout(() => setMessageBoth(null), 12000);
-    if (notify) showOsNotification('출퇴근전쟁봇', text);
+    if (notify) showOsNotification('출퇴근 생존일지', text);
   }, []);
 
   // 떠다니기: 한 번만 설정되는 안정적인 인터벌. 매 tick마다 최신 ref 값을 확인
