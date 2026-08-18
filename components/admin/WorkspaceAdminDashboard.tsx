@@ -8,6 +8,7 @@ import { fetchWorkspaceCorrections, reviewCorrection, type CorrectionRequest } f
 import { fetchRemoteWork, localDate, REMOTE_STATUS_LABEL, reviewRemoteWork, type RemoteWorkRequest } from '@/lib/remoteWork';
 import AttendanceReport from '../AttendanceReport';
 import HolidayPanel from './HolidayPanel';
+import MonthlyClosingPanel from './MonthlyClosingPanel';
 
 const REMOTE_STATUS_STYLE: Record<string, string> = {
   pending: 'bg-amber-50 text-amber-800',
@@ -126,6 +127,8 @@ export default function WorkspaceAdminDashboard() {
 
     {/* 휴일을 바꾸면 휴일근로·지각 계산이 달라지므로 집계를 다시 불러옵니다. */}
     {workspaceId && <HolidayPanel workspaceId={workspaceId} year={new Date().getFullYear()} onChanged={() => setHolidayVersion((value) => value + 1)} />}
+
+    {workspaceId && <MonthlyClosingPanel workspaceId={workspaceId} onChanged={() => { setHolidayVersion((value) => value + 1); void loadCorrections(workspaceId); }} />}
 
     {workspaceId && <section className="card overflow-hidden"><header className="border-b border-slate-200 px-5 py-4"><h2 className="font-black">근태 정정 요청</h2><p className="mt-1 text-xs text-slate-500">승인하면 기록이 바뀌고, 원본 값과 승인자가 변경 이력에 남습니다. 본인 기록은 다른 관리자만 승인할 수 있습니다.</p></header>
       {correctionError && <p role="alert" className="border-b border-red-100 bg-red-50 px-5 py-3 text-sm font-semibold text-red-700">{correctionError}</p>}

@@ -7,11 +7,14 @@
 -- 의존하지 않는다 — 합성 유저·워크스페이스를 트랜잭션 안에서 만들어 쓰고 같이 사라진다.
 --
 -- 결과는 예외 메시지로 나온다:
---   성공 → "TEST_RESULT: 통과 67 / 실패 0 OK"
+--   성공 → "TEST_RESULT: 통과 85 / 실패 0 OK"
 --   실패 → 실패한 항목이 '기대=… 실제=…' 형태로 함께 나온다.
 --
 -- 왜 SQL 테스트인가: 임금에 영향을 주는 계산(근무시간·휴게·연장·야간·휴일·지각·위치 판정)이
 -- 전부 Postgres 함수 안에 있다. JS 테스트로는 한 줄도 못 덮는다.
+--
+-- 구간: A 근무시간 · B 자정 넘김 · C 근무일 귀속 · D 기록 RPC · E 위치 인증 · F 권한 ·
+--       G 공휴일 · H 월 마감
 --
 -- 케이스를 추가할 때 지킬 것 두 가지 (둘 다 실제로 당해서 적는다):
 --   1) 실패 메시지를 넣을 땐 `array_append(fails, ...)`를 쓴다. `fails || '문자열'`은 리터럴 타입이
@@ -23,6 +26,8 @@ do $$
 declare
   uid uuid := gen_random_uuid();
   outsider uuid := gen_random_uuid();  -- 관리자가 아닌 구성원 (권한 검증용)
+  admin2 uuid := gen_random_uuid();   -- 본인 승인 금지 때문에 정정 승인은 다른 관리자가 해야 한다
+  closing_record uuid; closing_request uuid; closing_snap jsonb; closing_list jsonb;
   ws uuid;
   fails text[] := '{}';
   checks int := 0;
@@ -355,6 +360,125 @@ begin
     then fails := array_append(fails, 'G-8 save_work_holidays가 anon에게 열려 있음'); end if;
   if has_function_privilege('anon', 'public.list_work_holidays(uuid, date, date)', 'execute')
     then fails := array_append(fails, 'G-8 list_work_holidays가 anon에게 열려 있음'); end if;
+
+  -- ════════════════════════════════════════════════════════════════════════
+  -- H. 월 마감 — 마감하면 그 달을 못 고치고, 지급 근거가 박제된다
+  -- ════════════════════════════════════════════════════════════════════════
+  delete from public.commute_records where user_id = uid::text;
+  insert into auth.users (id) values (admin2);
+  insert into public.users (id, nickname) values (admin2::text, '관리자둘') on conflict (id) do nothing;
+  insert into public.chat_workspace_members (workspace_id, user_id, role) values (ws, admin2, 'admin');
+
+  -- 2020-06-15(월) 09:00~18:00 = 근무 480분
+  insert into public.commute_records (user_id, workspace_id, date, type, commute_subtype, start_time, end_time)
+  values (uid::text, ws, '2020-06-15', 'commute', 'arrival', ('2020-06-15'::date + time '08:00') at time zone 'Asia/Seoul', ('2020-06-15'::date + time '09:00') at time zone 'Asia/Seoul')
+  returning id into closing_record;
+  insert into public.commute_records (user_id, workspace_id, date, type, commute_subtype, start_time, end_time)
+  values (uid::text, ws, '2020-06-15', 'return', 'arrival', ('2020-06-15'::date + time '18:00') at time zone 'Asia/Seoul', ('2020-06-15'::date + time '19:00') at time zone 'Asia/Seoul');
+
+  -- H-1. 아직 끝나지 않은 달은 마감할 수 없다 (진행 중인 달을 닫으면 남은 날이 전부 '변경'으로 쌓인다)
+  checks := checks + 1;
+  begin
+    perform public.close_attendance_month(ws, date_trunc('month', now())::date, null);
+    fails := array_append(fails, 'H-1 진행 중인 달이 마감됨');
+  exception when others then
+    if sqlerrm not like '%아직 끝나지 않%' then fails := array_append(fails, 'H-1 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- H-2. 마감 전에는 정정 요청이 된다
+  checks := checks + 1;
+  begin
+    closing_request := public.request_commute_correction(closing_record, ('2020-06-15'::date + time '08:50') at time zone 'Asia/Seoul', null, null, '지문인식 오류로 늦게 찍힘');
+  exception when others then
+    fails := array_append(fails, 'H-2 마감 전 정정 요청 실패: ' || sqlerrm);
+  end;
+
+  -- H-3. 마감하면 상태가 바뀌고 스냅샷에 근무 480분이 박제된다
+  perform public.close_attendance_month(ws, '2020-06-01', '급여 정산 완료');
+  checks := checks + 3;
+  if not public.is_attendance_month_closed(ws, '2020-06-20') then fails := array_append(fails, 'H-3 마감 상태가 아님'); end if;
+  closing_snap := public.get_closing_snapshot(ws, '2020-06-01');
+  if closing_snap is null then fails := array_append(fails, 'H-3 스냅샷 없음');
+  elsif (select item->>'workedMinutes' from jsonb_array_elements(closing_snap->'days') item where item->>'date' = '2020-06-15') <> '480'
+    then fails := array_append(fails, 'H-3 스냅샷 근무시간이 480이 아님'); end if;
+  if jsonb_array_length(closing_snap->'days') <> 1 then fails := array_append(fails, 'H-3 스냅샷 일수가 1이 아님'); end if;
+
+  -- H-4. 마감된 달은 새 정정 요청이 막힌다
+  checks := checks + 1;
+  begin
+    perform public.request_commute_correction(closing_record, ('2020-06-15'::date + time '07:00') at time zone 'Asia/Seoul', null, null, '마감 후 시도');
+    fails := array_append(fails, 'H-4 마감된 달에 정정 요청이 통과됨');
+  exception when others then
+    if sqlerrm not like '%마감되어 정정할 수 없%' then fails := array_append(fails, 'H-4 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- H-5. 마감 전에 넣어둔 대기 요청도 승인이 막힌다 (요청한 뒤에 마감됐을 수 있으므로)
+  perform set_config('request.jwt.claim.sub', admin2::text, true);
+  checks := checks + 1;
+  begin
+    perform public.review_commute_correction(closing_request, true, null);
+    fails := array_append(fails, 'H-5 마감된 달의 정정이 승인됨');
+  exception when others then
+    if sqlerrm not like '%마감되어 승인할 수 없%' then fails := array_append(fails, 'H-5 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+
+  -- H-6. 중복 마감 불가 / 해제엔 사유가 필요하다
+  checks := checks + 2;
+  begin
+    perform public.close_attendance_month(ws, '2020-06-01', null);
+    fails := array_append(fails, 'H-6 이미 마감된 달이 또 마감됨');
+  exception when others then
+    if sqlerrm not like '%이미 마감%' then fails := array_append(fails, 'H-6 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  begin
+    perform public.reopen_attendance_month(ws, '2020-06-01', '짧음');
+    fails := array_append(fails, 'H-6 사유 없이 해제됨');
+  exception when others then
+    if sqlerrm not like '%5자 이상%' then fails := array_append(fails, 'H-6 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- H-7. 해제하면 다시 승인할 수 있고, 원장과 스냅샷은 남는다
+  perform public.reopen_attendance_month(ws, '2020-06-01', '누락 기록 발견되어 재정산');
+  checks := checks + 4;
+  if public.is_attendance_month_closed(ws, '2020-06-01') then fails := array_append(fails, 'H-7 해제 후에도 마감 상태'); end if;
+  perform set_config('request.jwt.claim.sub', admin2::text, true);
+  begin
+    perform public.review_commute_correction(closing_request, true, '확인함');
+  exception when others then
+    fails := array_append(fails, 'H-7 해제 후에도 승인 실패: ' || sqlerrm);
+  end;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+  if (select count(*) from public.attendance_closings c where c.workspace_id = ws) <> 2
+    then fails := array_append(fails, 'H-7 원장이 2행이 아님(마감+해제)'); end if;
+  if (select c.snapshot from public.attendance_closings c where c.workspace_id = ws and c.action = 'close') is null
+    then fails := array_append(fails, 'H-7 해제해도 마감 스냅샷은 남아야 한다'); end if;
+
+  -- H-8. 목록에 해제 상태와 사유가 보인다
+  closing_list := public.list_attendance_closings(ws, '2020-06-01', '2020-06-01');
+  select item into d from jsonb_array_elements(closing_list) item limit 1;
+  checks := checks + 2;
+  if (d->>'closed')::boolean is not false then fails := array_append(fails, 'H-8 목록이 마감 상태로 나옴'); end if;
+  if d->>'note' <> '누락 기록 발견되어 재정산' then fails := array_append(fails, 'H-8 해제 사유가 안 보임'); end if;
+
+  -- H-9. 일반 구성원은 마감할 수 없다
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  checks := checks + 1;
+  begin
+    perform public.close_attendance_month(ws, '2020-05-01', null);
+    fails := array_append(fails, 'H-9 일반 구성원이 마감함');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'H-9 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+
+  -- H-10. 마감 함수는 anon에게 닫혀 있고, 내부 판정 함수는 앱에서 직접 못 부른다
+  checks := checks + 2;
+  if has_function_privilege('anon', 'public.close_attendance_month(uuid, date, text)', 'execute')
+    then fails := array_append(fails, 'H-10 close_attendance_month가 anon에게 열려 있음'); end if;
+  if has_function_privilege('authenticated', 'public.is_attendance_month_closed(uuid, date)', 'execute')
+    then fails := array_append(fails, 'H-10 내부 판정 함수가 authenticated에게 열려 있음'); end if;
+
 
   -- ── 결과 ──────────────────────────────────────────────────────────────────
   if array_length(fails, 1) is null then
