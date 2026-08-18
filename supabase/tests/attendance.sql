@@ -7,14 +7,14 @@
 -- 의존하지 않는다 — 합성 유저·워크스페이스를 트랜잭션 안에서 만들어 쓰고 같이 사라진다.
 --
 -- 결과는 예외 메시지로 나온다:
---   성공 → "TEST_RESULT: 통과 144 / 실패 0 OK"
+--   성공 → "TEST_RESULT: 통과 169 / 실패 0 OK"
 --   실패 → 실패한 항목이 '기대=… 실제=…' 형태로 함께 나온다.
 --
 -- 왜 SQL 테스트인가: 임금에 영향을 주는 계산(근무시간·휴게·연장·야간·휴일·지각·위치 판정)이
 -- 전부 Postgres 함수 안에 있다. JS 테스트로는 한 줄도 못 덮는다.
 --
 -- 구간: A 근무시간 · B 자정 넘김 · C 근무일 귀속 · D 기록 RPC · E 위치 인증 · F 권한 ·
---       G 공휴일 · H 월 마감 · I 휴가·연차 · J 공휴일 자동 갱신
+--       G 공휴일 · H 월 마감 · I 휴가·연차 · J 공휴일 자동 갱신 · K 조직(부서·직급)
 --
 -- 케이스를 추가할 때 지킬 것 세 가지 (전부 실제로 당해서 적는다):
 --   1) 실패 메시지를 넣을 땐 `array_append(fails, ...)`를 쓴다. `fails || '문자열'`은 리터럴 타입이
@@ -36,6 +36,8 @@ declare
   lv_balance jsonb; lv_list jsonb;
   -- J 구간(공휴일 자동 갱신)도 오늘이 몇 년 몇 월인지에 따라 대상이 달라진다
   hs_year integer; hs_expected integer; hs_due jsonb; hs_list jsonb;
+  ws2 uuid;  -- K 구간: 다른 워크스페이스의 부서를 붙이지 못하는지 보려면 두 번째가 필요하다
+  og_dept uuid; og_dept2 uuid; og_pos uuid; og_other uuid; og_members bigint; og jsonb;
   ws uuid;
   fails text[] := '{}';
   checks int := 0;
@@ -865,6 +867,161 @@ begin
     then fails := array_append(fails, 'J-11 record_holiday_sync가 anon에게 열려 있음'); end if;
   if has_function_privilege('anon', 'public.list_holiday_syncs(uuid)', 'execute')
     then fails := array_append(fails, 'J-11 list_holiday_syncs가 anon에게 열려 있음'); end if;
+
+  -- ════════════════════════════════════════════════════════════════════════
+  -- K. 조직(부서·직급) — 배정은 관리자만, 조직도는 모두, 삭제해도 사람은 남는다
+  -- ════════════════════════════════════════════════════════════════════════
+  -- 구성원 수를 숫자로 박지 않고 실제 인원과 대조한다. 앞 구간이 계정을 늘리면
+  -- (G가 outsider, H가 admin2를 넣었다) 박아 둔 숫자는 그때마다 틀린다.
+  select count(*) into og_members from public.chat_workspace_members m where m.workspace_id = ws;
+  insert into public.chat_workspaces (name, owner_id) values ('남의워크스페이스', uid) returning id into ws2;
+  insert into public.chat_workspace_members (workspace_id, user_id, role) values (ws2, uid, 'owner');
+
+  -- K-1. 처음엔 부서도 직급도 없고, 구성원은 '미지정'이다
+  og := public.list_org(ws);
+  checks := checks + 3;
+  if jsonb_array_length(og->'departments') <> 0 then fails := array_append(fails, 'K-1 부서가 비어 있지 않음'); end if;
+  if jsonb_array_length(og->'members') <> og_members then
+    fails := array_append(fails, format('K-1 구성원: 기대=%s 실제=%s', og_members, jsonb_array_length(og->'members')));
+  end if;
+  select item into d from jsonb_array_elements(og->'members') item where item->>'userId' = uid::text;
+  if d->>'departmentName' is not null then fails := array_append(fails, 'K-1 배정 전인데 부서 이름이 있음'); end if;
+
+  -- K-2. 일반 구성원은 부서를 만들 수 없다
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  checks := checks + 1;
+  begin
+    perform public.save_department(ws, null, '몰래부서', 0);
+    fails := array_append(fails, 'K-2 일반 구성원이 부서를 만듦');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'K-2 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+
+  -- K-3. 부서·직급을 만든다
+  og_dept := public.save_department(ws, null, '개발팀', 1);
+  og_dept2 := public.save_department(ws, null, '운영팀', 2);
+  og_pos := public.save_position(ws, null, '팀장', 10);
+  og := public.list_org(ws);
+  checks := checks + 2;
+  if jsonb_array_length(og->'departments') <> 2 then fails := array_append(fails, format('K-3 부서 수: 기대=2 실제=%s', jsonb_array_length(og->'departments'))); end if;
+  if jsonb_array_length(og->'positions') <> 1 then fails := array_append(fails, format('K-3 직급 수: 기대=1 실제=%s', jsonb_array_length(og->'positions'))); end if;
+
+  -- K-4. 이름이 겹치면 거부 (부서·직급 각각)
+  checks := checks + 2;
+  begin
+    perform public.save_department(ws, null, '개발팀', 3);
+    fails := array_append(fails, 'K-4 같은 이름의 부서가 또 만들어짐');
+  exception when others then
+    if sqlerrm not like '%같은 이름의 부서%' then fails := array_append(fails, 'K-4 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  begin
+    perform public.save_position(ws, null, '팀장', 20);
+    fails := array_append(fails, 'K-4 같은 이름의 직급이 또 만들어짐');
+  exception when others then
+    if sqlerrm not like '%같은 이름의 직급%' then fails := array_append(fails, 'K-4 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- K-5. 빈 이름 거부
+  checks := checks + 1;
+  begin
+    perform public.save_department(ws, null, '   ', 0);
+    fails := array_append(fails, 'K-5 빈 이름의 부서가 만들어짐');
+  exception when others then
+    if sqlerrm not like '%1~40자%' then fails := array_append(fails, 'K-5 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- K-6. 이름 바꾸기 — 자기 자신은 중복으로 치지 않아야 한다
+  --      (이 예외를 빼먹으면 순서만 바꾸려 해도 '이미 있는 이름'이라고 막힌다)
+  checks := checks + 2;
+  begin
+    perform public.save_department(ws, og_dept, '개발팀', 5);
+  exception when others then
+    fails := array_append(fails, 'K-6 자기 이름 그대로 저장이 실패: ' || sqlerrm);
+  end;
+  perform public.save_department(ws, og_dept, '플랫폼팀', 1);
+  og := public.list_org(ws);
+  select item into d from jsonb_array_elements(og->'departments') item where item->>'id' = og_dept::text;
+  if d->>'name' <> '플랫폼팀' then fails := array_append(fails, format('K-6 이름 변경 실패: %s', d->>'name')); end if;
+
+  -- K-7. 구성원 배정
+  perform public.assign_member_org(ws, uid, og_dept, og_pos);
+  og := public.list_org(ws);
+  select item into d from jsonb_array_elements(og->'members') item where item->>'userId' = uid::text;
+  checks := checks + 3;
+  if d->>'departmentName' <> '플랫폼팀' then fails := array_append(fails, format('K-7 부서: 기대=플랫폼팀 실제=%s', d->>'departmentName')); end if;
+  if d->>'positionName' <> '팀장' then fails := array_append(fails, format('K-7 직급: 기대=팀장 실제=%s', d->>'positionName')); end if;
+  select item into d from jsonb_array_elements(og->'departments') item where item->>'id' = og_dept::text;
+  if (d->>'memberCount')::int <> 1 then fails := array_append(fails, format('K-7 인원수: 기대=1 실제=%s', d->>'memberCount')); end if;
+
+  -- K-8. 다른 워크스페이스의 부서는 붙일 수 없다. 외래키만으로는 못 막는다 —
+  --      둘 다 org_departments이므로 참조 자체는 유효하다.
+  og_other := public.save_department(ws2, null, '남의부서', 0);
+  checks := checks + 1;
+  begin
+    perform public.assign_member_org(ws, uid, og_other, null);
+    fails := array_append(fails, 'K-8 다른 워크스페이스의 부서가 배정됨');
+  exception when others then
+    if sqlerrm not like '%이 워크스페이스의 부서가 아닙니다%' then fails := array_append(fails, 'K-8 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- K-9. 구성원이 아닌 사람은 배정할 수 없다
+  checks := checks + 1;
+  begin
+    perform public.assign_member_org(ws, gen_random_uuid(), og_dept, null);
+    fails := array_append(fails, 'K-9 구성원이 아닌 사람이 배정됨');
+  exception when others then
+    if sqlerrm not like '%워크스페이스 구성원이 아닙니다%' then fails := array_append(fails, 'K-9 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+
+  -- K-10. null로 배정하면 '미지정'으로 되돌아간다
+  perform public.assign_member_org(ws, uid, null, null);
+  og := public.list_org(ws);
+  select item into d from jsonb_array_elements(og->'members') item where item->>'userId' = uid::text;
+  checks := checks + 1;
+  if d->>'departmentName' is not null then fails := array_append(fails, 'K-10 미지정으로 안 돌아감'); end if;
+
+  -- K-11. 부서를 지워도 사람은 남는다. 조직 개편이 사람이나 기록을 지우는 일이 되면 안 된다.
+  perform public.assign_member_org(ws, uid, og_dept2, og_pos);
+  perform public.delete_department(ws, og_dept2);
+  og := public.list_org(ws);
+  checks := checks + 3;
+  if jsonb_array_length(og->'members') <> og_members then fails := array_append(fails, 'K-11 부서 삭제로 구성원이 사라짐'); end if;
+  select item into d from jsonb_array_elements(og->'members') item where item->>'userId' = uid::text;
+  if d->>'departmentId' is not null then fails := array_append(fails, 'K-11 지운 부서가 배정에 남아 있음'); end if;
+  if d->>'positionName' <> '팀장' then fails := array_append(fails, 'K-11 부서를 지웠는데 직급까지 날아감'); end if;
+
+  -- K-12. 일반 구성원도 조직도는 볼 수 있다 (누가 어느 팀인지는 사내에 공개된 정보다).
+  --       근태와는 다르다 — 근태는 관리자만 남의 것을 본다.
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  checks := checks + 1;
+  begin
+    og := public.list_org(ws);
+    if jsonb_array_length(og->'members') <> og_members then fails := array_append(fails, 'K-12 일반 구성원에게 조직도가 안 보임'); end if;
+  exception when others then
+    fails := array_append(fails, 'K-12 일반 구성원이 조직도를 못 봄: ' || sqlerrm);
+  end;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+
+  -- K-13. 보는 것과 바꾸는 것은 다르다 — 일반 구성원은 배정을 바꿀 수 없다
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  checks := checks + 1;
+  begin
+    perform public.assign_member_org(ws, outsider, og_dept, og_pos);
+    fails := array_append(fails, 'K-13 일반 구성원이 스스로 배정함');
+  exception when others then
+    if sqlerrm not like '%관리자 권한%' then fails := array_append(fails, 'K-13 예상과 다른 오류: ' || sqlerrm); end if;
+  end;
+  perform set_config('request.jwt.claim.sub', uid::text, true);
+
+  -- K-14. 권한 — anon에게 닫혀 있다
+  checks := checks + 3;
+  if has_function_privilege('anon', 'public.list_org(uuid)', 'execute')
+    then fails := array_append(fails, 'K-14 list_org가 anon에게 열려 있음'); end if;
+  if has_function_privilege('anon', 'public.save_department(uuid, uuid, text, integer)', 'execute')
+    then fails := array_append(fails, 'K-14 save_department가 anon에게 열려 있음'); end if;
+  if has_function_privilege('anon', 'public.assign_member_org(uuid, uuid, uuid, uuid)', 'execute')
+    then fails := array_append(fails, 'K-14 assign_member_org가 anon에게 열려 있음'); end if;
 
   -- ── 결과 ──────────────────────────────────────────────────────────────────
   if array_length(fails, 1) is null then

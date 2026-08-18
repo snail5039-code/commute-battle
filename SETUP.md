@@ -7,7 +7,8 @@
 > [`docs/2026-08-17_공휴일.md`](docs/2026-08-17_공휴일.md),
 > [`docs/2026-08-18_마감과_휴가.md`](docs/2026-08-18_마감과_휴가.md),
 > [`docs/2026-08-18_휴가_회귀테스트_편입.md`](docs/2026-08-18_휴가_회귀테스트_편입.md),
-> [`docs/2026-08-18_공휴일_자동갱신.md`](docs/2026-08-18_공휴일_자동갱신.md)
+> [`docs/2026-08-18_공휴일_자동갱신.md`](docs/2026-08-18_공휴일_자동갱신.md),
+> [`docs/2026-08-18_조직_부서직급.md`](docs/2026-08-18_조직_부서직급.md)
 
 ## 지금 어디까지 왔나
 
@@ -26,7 +27,8 @@
 | 공휴일 | 공공데이터 API·CSV·직접 추가 3경로. **매년 자동 갱신**(관리자가 앱을 열면 서버가 채움) |
 | 월 마감 | 마감하면 정정 차단 + 지급 근거 스냅샷. 해제는 사유 필수, 원장에 이력 |
 | 휴가·연차 | 신청 → 승인, 승인 시 근무일마다 기록 자동 생성. 잔여 관리(부여 일수는 관리자 입력) |
-| 자동 테스트 | `supabase/tests/attendance.sql` **144개 검사**. 휴가·공휴일 자동 갱신까지 한 파일에 |
+| 자동 테스트 | `supabase/tests/attendance.sql` **169개 검사** (A~K 구간) |
+| 조직(부서·직급) | 부서·직급을 만들고 배정. 집계를 부서로 걸러 봄. **직급은 권한이 아님** |
 | 워크스페이스 채팅 | 채널·DM·파일 전송(10MB)·허들(1:1 음성+화면공유) |
 | 법·제도 대응 | 사용자 지시로 범위 제외 (상용화 전 노무사·변호사 자문 필요) |
 
@@ -65,8 +67,9 @@ http://localhost:3000
 
 | # | 할 일 | 상태 |
 |---|---|---|
-| 1 | 조직(부서·직급) | 진행 중 (2026-08-18) |
+| 1 | 승인 라인(부서장이 자기 부서 근태를 승인) | 조직이 생겨 가능해졌습니다. 다만 '부서장'을 어떻게 정할지 먼저 정해야 합니다 |
 | 2 | 지오펜스 후속(미인증 승인 흐름, 사업장 여러 곳) | 필요해지면 |
+| ~~3~~ | ~~조직(부서·직급)~~ | ✅ 2026-08-18 완료 |
 | ~~3~~ | ~~공휴일 매년 자동 갱신~~ | ✅ 2026-08-18 완료 |
 | ~~4~~ | ~~휴가 케이스를 회귀 테스트에 편입~~ | ✅ 2026-08-18 완료 (85 → 126개) |
 | ~~5~~ | ~~급여 시스템 연동 포맷~~ | 🚫 사용자 결정으로 제외 — "급여는 회사마다 다르니 굳이 필요 없을 듯" (2026-08-18) |
@@ -124,7 +127,7 @@ npm run dev
 `supabase/tests/attendance.sql` 전체를 Supabase SQL Editor에 붙여넣고 실행하거나,
 Supabase MCP `execute_sql`에 그대로 넘기면 됩니다.
 
-- 결과는 **예외 메시지**로 나옵니다: `TEST_RESULT: 통과 144 / 실패 0 ✅`
+- 결과는 **예외 메시지**로 나옵니다: `TEST_RESULT: 통과 169 / 실패 0 ✅`
 - 마지막에 일부러 예외를 던져 **전부 롤백**되므로 DB에는 아무것도 남지 않습니다.
 - 합성 계정·워크스페이스를 트랜잭션 안에서 만들어 쓰므로 실제 데이터에 의존하지 않습니다.
 - **근무시간 계산이나 근태 RPC를 고치면 이 파일부터 돌릴 것.** 새 규칙을 넣었으면 케이스도 추가.
@@ -155,6 +158,8 @@ Supabase MCP `execute_sql`에 그대로 넘기면 됩니다.
 - [ ] **위치 인증**: 사업장 지정 후 집에서 출근 도착을 눌러 보기 → '위치 미인증' 배너가 뜨고
       /admin 집계에 미인증으로 잡히는지. 회사에서 눌렀을 땐 아무 경고도 안 떠야 정상
 - [ ] **위치 인증**: 브라우저 위치 권한을 끈 상태로 출근 도착 → 기록은 되고 '위치 권한 거부'로 남는지
+- [ ] **조직**: /admin에서 부서·직급을 만들고 배정 → 근무시간 집계에 부서 필터와 부서 열이 나오는지
+      (관리자 화면은 로그인 뒤에 있어 제가 눌러 보지 못했습니다)
 
 문제가 있으면 다음 세션에 "○○ 안 된다"고 하면 됩니다.
 
@@ -172,7 +177,9 @@ Supabase MCP `execute_sql`에 그대로 넘기면 됩니다.
 
 ## 🗺 로드맵 (근태 시스템, 법·제도 항목 제외)
 
-1. 조직(부서·직급) — 부서별 집계와 승인 라인을 만들려면 필요합니다. 지금은 구성원이 적어 급하지 않습니다.
+1. ~~조직(부서·직급)~~ — **완료**(2026-08-18).
+   [`docs/2026-08-18_조직_부서직급.md`](docs/2026-08-18_조직_부서직급.md).
+   승인 라인은 아직입니다 — '부서장'을 어떻게 정할지가 "직급은 권한이 아니다"와 어떻게 어울릴지 먼저 정해야 합니다.
 2. ~~급여 시스템 연동 포맷~~ — **사용자 결정으로 제외**(2026-08-18). 급여 시스템은 회사마다 달라
    범용 포맷을 만들 실익이 없다고 판단했습니다. 근무시간 집계 CSV로 충분합니다.
 3. ~~공휴일 매년 자동 갱신~~ — **완료**(2026-08-18). 관리자가 앱을 열면 서버가 알아서 채웁니다.
@@ -304,11 +311,19 @@ Supabase MCP `execute_sql`에 그대로 넘기면 됩니다.
 | `202608180001_monthly_closing.sql` | 월 마감 원장 + 스냅샷, 마감된 달 정정 차단 |
 | `202608180002_leave.sql` | 휴가 신청·승인, 연차 부여·잔여, 근무일 계산 |
 | `202608180003_holiday_auto_sync.sql` | 공휴일 자동 갱신 원장(`work_holiday_syncs`) + 재시도 주기 판단 |
+| `202608180004_org.sql` | 조직: `org_departments`·`org_positions` + 구성원 배정 |
 
 ### 테이블과 RLS
 `users` / `commute_records` / `badges` / `community_posts` / `quest_claims` /
 `chat_*`(워크스페이스·채널·메시지·DM) / `work_policies` / `remote_work_requests` /
-`commute_correction_requests` / `commute_record_audits`.
+`commute_correction_requests` / `commute_record_audits` / `work_holiday_syncs` /
+`org_departments` / `org_positions`.
+
+⚠️ **`public.departments`는 우리 조직 테이블이 아니다.** 0100001의 부서 채팅 채널 테이블이고
+(`department_messages`가 참조), 앱 코드 어디에서도 더는 참조하지 않는다 — 채팅은
+`chat_channels`/`chat_messages`로 옮겨갔다. 조직은 `org_departments`다.
+테이블을 새로 만들기 전에 `select to_regclass('public.이름')`으로 확인할 것
+(`create table if not exists`는 이름만 같아도 조용히 넘어간다 — 2026-08-18에 여기서 한 번 죽었다).
 
 **RLS는 public 스키마 전 테이블에 켜져 있다**(예전 메모에 "community_posts만 켜져 있음"이라고 적혀
 있었지만 지금은 아니다). 특히:
@@ -327,6 +342,7 @@ Supabase MCP `execute_sql`에 그대로 넘기면 됩니다.
 | 공휴일(API·CSV 파싱·저장) | `lib/holidays.ts`, `app/api/holidays/route.ts` |
 | 공휴일 관리 화면 | `components/admin/HolidayPanel.tsx` |
 | 공휴일 자동 갱신(앱 시작 시 조용히) | `components/HolidayAutoSync.tsx`, `lib/holidays.ts`의 `syncHolidaysIfDue` |
+| 조직(부서·직급) | `lib/org.ts`, `components/admin/OrgPanel.tsx` |
 | 월 마감(원장·스냅샷) | `lib/closing.ts`, `components/admin/MonthlyClosingPanel.tsx` |
 | 휴가·연차 | `lib/leave.ts`, `components/LeavePanel.tsx`, `components/admin/LeaveAdminPanel.tsx` |
 | 근무시간 집계 표시·CSV | `lib/workTime.ts`, `components/AttendanceReport.tsx` |

@@ -8,6 +8,10 @@ import {
 } from '@/lib/workTime';
 import { formatDistance } from '@/lib/geofence';
 import OfficeLocationPicker from './admin/OfficeLocationPicker';
+import { EMPTY_ORG, fetchOrg, orgByUserId, UNASSIGNED, type Org } from '@/lib/org';
+
+// 부서 필터의 '미지정' 값. 빈 문자열은 '전체'라서 따로 둡니다.
+const NO_DEPARTMENT = '__none__';
 
 const STATUS_STYLE: Record<string, string> = {
   complete: 'bg-slate-100 text-slate-600',
@@ -23,6 +27,8 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [member, setMember] = useState('');
+  const [department, setDepartment] = useState('');
+  const [org, setOrg] = useState<Org>(EMPTY_ORG);
   const [summary, setSummary] = useState<AttendanceSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -43,14 +49,39 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
 
   useEffect(() => { const timer = setTimeout(() => { void load(); }, 0); return () => clearTimeout(timer); }, [load]);
 
+  // 부서·직급은 집계 함수가 모릅니다. 임금이 걸린 get_attendance_summary를 부서 표시 때문에
+  // 고치지 않으려고 따로 받아 userId로 맞춰 붙입니다. 조직이 없으면 필터가 안 보일 뿐입니다.
+  useEffect(() => {
+    let active = true;
+    void fetchOrg(workspaceId).then((next) => { if (active) setOrg(next); }).catch(() => {});
+    return () => { active = false; };
+  }, [workspaceId]);
+
+  const orgMap = useMemo(() => orgByUserId(org), [org]);
+
+  // 부서로 거른 결과. 아래 계산·표·CSV는 전부 이걸 봅니다 — summary를 직접 보면
+  // 필터가 걸린 화면에서 합계만 전체 값으로 남습니다.
+  const view = useMemo(() => {
+    if (!summary || !department) return summary;
+    const keep = (userId: string) => {
+      const assigned = orgMap.get(userId)?.departmentId ?? null;
+      return department === NO_DEPARTMENT ? assigned === null : assigned === department;
+    };
+    return {
+      ...summary,
+      days: summary.days.filter((day) => keep(day.userId)),
+      weeks: summary.weeks.filter((week) => keep(week.userId)),
+    };
+  }, [summary, department, orgMap]);
+
   const members = useMemo(() => {
     const map = new Map<string, string>();
-    summary?.days.forEach((day) => map.set(day.userId, day.nickname));
+    view?.days.forEach((day) => map.set(day.userId, day.nickname));
     return [...map].map(([userId, nickname]) => ({ userId, nickname }));
-  }, [summary]);
+  }, [view]);
 
   const totals = useMemo(() => {
-    const days = summary?.days ?? [];
+    const days = view?.days ?? [];
     return {
       worked: days.reduce((sum, day) => sum + day.workedMinutes, 0),
       overtime: days.reduce((sum, day) => sum + day.overtimeMinutes, 0),
@@ -60,10 +91,10 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
       incomplete: days.filter((day) => day.status === 'incomplete').length,
       unverified: days.filter((day) => day.locationUnverified > 0).length,
     };
-  }, [summary]);
+  }, [view]);
 
-  const overLimitWeeks = summary?.weeks.filter((week) => week.overLimit) ?? [];
-  const unverifiedDays = summary?.days.filter((day) => day.locationUnverified > 0) ?? [];
+  const overLimitWeeks = view?.weeks.filter((week) => week.overLimit) ?? [];
+  const unverifiedDays = view?.days.filter((day) => day.locationUnverified > 0) ?? [];
   const geofenceOn = summary?.policy.officeLat !== null && summary?.policy.officeLat !== undefined;
 
   const savePolicy = async () => {
@@ -104,6 +135,14 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
           <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} aria-label="시작일" className="h-10 rounded-lg border border-slate-300 px-2 text-xs" />
           <span className="text-xs text-slate-400">~</span>
           <input type="date" value={to} onChange={(event) => setTo(event.target.value)} aria-label="종료일" className="h-10 rounded-lg border border-slate-300 px-2 text-xs" />
+          {adminMode && org.departments.length > 0 && (
+            <select value={department} onChange={(event) => { setDepartment(event.target.value); setMember(''); }}
+              aria-label="부서" className="h-10 rounded-lg border border-slate-300 px-2 text-xs font-bold">
+              <option value="">전체 부서</option>
+              {org.departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              <option value={NO_DEPARTMENT}>{UNASSIGNED}</option>
+            </select>
+          )}
           {adminMode && members.length > 0 && (
             <select value={member} onChange={(event) => setMember(event.target.value)} aria-label="구성원" className="h-10 rounded-lg border border-slate-300 px-2 text-xs font-bold">
               <option value="">전체 구성원</option>
@@ -114,7 +153,7 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
           {adminMode && (
             <button type="button" onClick={() => setPolicyOpen((open) => !open)} aria-expanded={policyOpen} className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-300 px-3 text-xs font-bold"><Settings2 size={15} />근무 정책</button>
           )}
-          <button type="button" onClick={() => summary && downloadCsv(`근태_${from}_${to}.csv`, attendanceCsv(summary.days))} disabled={!summary?.days.length} className="flex h-10 items-center gap-1.5 rounded-lg bg-[#611f69] px-3 text-xs font-bold text-white disabled:opacity-40"><Download size={15} />CSV</button>
+          <button type="button" onClick={() => view && downloadCsv(`근태_${from}_${to}.csv`, attendanceCsv(view.days))} disabled={!view?.days.length} className="flex h-10 items-center gap-1.5 rounded-lg bg-[#611f69] px-3 text-xs font-bold text-white disabled:opacity-40"><Download size={15} />CSV</button>
         </div>
       </header>
 
@@ -219,22 +258,31 @@ export default function AttendanceReport({ workspaceId, adminMode }: { workspace
             </div>
           )}
 
-          {summary.days.length === 0 ? (
-            <p className="px-5 py-8 text-center text-sm text-slate-500">이 기간에는 워크스페이스에 연결된 근태 기록이 없습니다.</p>
+          {!view || view.days.length === 0 ? (
+            <p className="px-5 py-8 text-center text-sm text-slate-500">
+              {department ? '이 부서에는 해당 기간의 근태 기록이 없습니다.' : '이 기간에는 워크스페이스에 연결된 근태 기록이 없습니다.'}
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[860px] text-left text-sm">
                 <caption className="px-5 pt-4 text-left text-xs font-bold text-slate-500">일별 상세</caption>
                 <thead className="text-xs text-slate-500"><tr>
-                  <th className="px-5 py-2">날짜</th><th className="px-4 py-2">구성원</th><th className="px-4 py-2">출근</th><th className="px-4 py-2">퇴근</th>
+                  <th className="px-5 py-2">날짜</th><th className="px-4 py-2">구성원</th>
+                  {org.departments.length > 0 && <th className="px-4 py-2">부서</th>}
+                  <th className="px-4 py-2">출근</th><th className="px-4 py-2">퇴근</th>
                   <th className="px-4 py-2">근무</th><th className="px-4 py-2">연장</th><th className="px-4 py-2">야간</th><th className="px-4 py-2">지각</th><th className="px-4 py-2">상태</th>
                   {geofenceOn && <th className="px-4 py-2">위치</th>}
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
-                  {summary.days.map((day) => (
+                  {view.days.map((day) => (
                     <tr key={`${day.userId}-${day.date}`} className={day.isHoliday ? 'bg-slate-50/70' : ''}>
                       <td className="px-5 py-2 text-xs font-bold">{day.date}{day.isHoliday && <span className="ml-1 text-[10px] font-normal text-rose-600">{day.holidayName ?? '휴일'}</span>}</td>
                       <td className="px-4 py-2 text-xs">{day.nickname}{day.isRemote && <span className="ml-1 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">재택</span>}</td>
+                      {org.departments.length > 0 && (
+                        <td className="px-4 py-2 text-xs text-slate-500">
+                          {orgMap.get(day.userId)?.departmentName ?? <span className="text-slate-300">{UNASSIGNED}</span>}
+                        </td>
+                      )}
                       <td className="px-4 py-2 text-xs">{formatClock(day.workIn)}</td>
                       <td className="px-4 py-2 text-xs">{formatClock(day.workOut)}</td>
                       <td className="px-4 py-2 font-bold">{formatMinutes(day.workedMinutes)}</td>

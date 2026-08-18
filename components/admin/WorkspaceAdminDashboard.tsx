@@ -8,6 +8,7 @@ import { fetchWorkspaceCorrections, reviewCorrection, type CorrectionRequest } f
 import { fetchRemoteWork, localDate, REMOTE_STATUS_LABEL, reviewRemoteWork, type RemoteWorkRequest } from '@/lib/remoteWork';
 import AttendanceReport from '../AttendanceReport';
 import HolidayPanel from './HolidayPanel';
+import OrgPanel from './OrgPanel';
 import MonthlyClosingPanel from './MonthlyClosingPanel';
 import LeaveAdminPanel from './LeaveAdminPanel';
 
@@ -123,6 +124,8 @@ export default function WorkspaceAdminDashboard() {
         </div>}
       </li>)}</ul>}
     </section>}
+
+    {workspaceId && <OrgPanel workspaceId={workspaceId} onChanged={() => setHolidayVersion((value) => value + 1)} />}
 
     {workspaceId && <AttendanceReport key={`report-${holidayVersion}`} workspaceId={workspaceId} adminMode />}
 
